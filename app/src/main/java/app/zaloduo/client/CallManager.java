@@ -425,15 +425,18 @@ final class CallManager {
             App.MAIN.post(() -> KeepAliveService.setSpeaker(app, true)); // gọi video: loa ngoài như Zalo
             // ZaloCall.exe gửi IncallNegotiateInfo đều đặn trong cuộc gọi video.
             App.IO.execute(() -> {
-                long lastRv = r.rxVideoBytes, lastAt = System.currentTimeMillis();
+                long lastRv = r.rxVideoBytes, lastAt = System.currentTimeMillis(), lastIdr = 0;
                 for (int n = 1; current(myGen) && video == v; n++) {
                     r.sendVideoNegotiate();
-                    v.sendFeedback(REMB_BPS); // RR + REMB: để bên kia tăng bitrate hình
+                    // RR mỗi 2 giây; REMB chỉ 3 lần đầu sau khi có hình: gửi liên tục thì bên kia (iPhone) đặt lại bộ mã hoá mỗi
+                    // lần nhận, hình khựng theo nhịp 2 giây. Mức trần đã đặt vẫn giữ, RR đủ để bên kia tự tăng dần.
+                    v.sendFeedback(REMB_BPS);
                     if (n % 5 == 0) { // nhật ký: tốc độ / cỡ hình nhận mỗi 10 giây (xem chất lượng hình bên kia gửi)
                         long now = System.currentTimeMillis(), rv = r.rxVideoBytes;
-                        CallEvents.log("video rx " + kbps(rv - lastRv, (now - lastAt) / 1000.0) + " kbps size="
+                        CallEvents.log("video rx " + kbps(rv - lastRv, (now - lastAt) / 1000.0) + " kbps idr=" + (v.rxIdr - lastIdr) + " size="
                                 + v.remoteSize() + " ping=" + r.pingMs);
                         lastRv = rv;
+                        lastIdr = v.rxIdr;
                         lastAt = now;
                     }
                     try { Thread.sleep(2000); } catch (InterruptedException e) { return; }

@@ -61,7 +61,7 @@ final class CallVideo {
     private byte[] spsPps = new byte[0];
     private int seq = (int) (Math.random() * 65535);
     private long lastKeyReq;
-    volatile long txFrames, rxFrames, decFrames, pliSent, pliRecv;
+    volatile long txFrames, rxFrames, decFrames, pliSent, pliRecv, rxIdr;
 
     // nhận
     private volatile Surface remoteSurface;
@@ -415,6 +415,7 @@ final class CallVideo {
 
     private void pushAu(byte[] au) {
         rxFrames++;
+        if (hasNal(au, 5)) rxIdr++; // khung khoá nhận được (nhật ký: bên kia có phát lại khung khoá liên tục không)
         if (!rxAu.offer(au)) { rxAu.poll(); rxAu.offer(au); synced = false; }
     }
 
@@ -437,6 +438,12 @@ final class CallVideo {
                     if (dec == null) {
                         MediaFormat f = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, 1280, 720);
                         dec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
+                        // Bộ giải mã hỗ trợ độ trễ thấp (Android 11+): ra hình ngay từng khung, không giữ lại vài khung.
+                        if (android.os.Build.VERSION.SDK_INT >= 30 && dec.getCodecInfo()
+                                .getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)
+                                .isFeatureSupported(android.media.MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency)) {
+                            f.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
+                        }
                         dec.configure(f, s, null, 0);
                         dec.start();
                         CallEvents.log("video decoder " + dec.getName());
@@ -567,6 +574,7 @@ final class CallVideo {
     }
 
     private final RxStats rx = new RxStats();
+    private int rembLeft = 3;
 
     /**
      * Phản hồi cho bên gửi hình, mỗi 2 giây: RR (mất gói, số thứ tự, LSR/DLSR) + REMB (PSFB fmt 15) mức bitrate tối đa
@@ -587,9 +595,12 @@ final class CallVideo {
                 b.put((byte) 0x80).put((byte) 201).putShort((short) 1).putInt(ssrc);
             }
         }
-        b.put((byte) 0x8F).put((byte) 206).putShort((short) 5).putInt(ssrc).putInt(0)  // PSFB fmt 15
-                .put(new byte[]{'R', 'E', 'M', 'B'}).put((byte) 1)
-                .put((byte) ((exp << 2) | ((mant >> 16) & 0x03))).putShort((short) mant).putInt(media);
+        if (bps > 0 && rembLeft > 0) { // REMB chỉ vài lần đầu (gửi liên tục làm bên kia khựng hình), sau đó chỉ RR
+            rembLeft--;
+            b.put((byte) 0x8F).put((byte) 206).putShort((short) 5).putInt(ssrc).putInt(0)  // PSFB fmt 15
+                    .put(new byte[]{'R', 'E', 'M', 'B'}).put((byte) 1)
+                    .put((byte) ((exp << 2) | ((mant >> 16) & 0x03))).putShort((short) mant).putInt(media);
+        }
         out.sendRtcp(b.array(), b.position(), true);
     }
 
