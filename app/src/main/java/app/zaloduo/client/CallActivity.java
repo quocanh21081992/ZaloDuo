@@ -329,6 +329,19 @@ public class CallActivity extends Activity implements CallManager.Listener {
 
     private boolean cropBeforePip;
     private View uiRoot;
+    private boolean localPlaced;
+    private int insetTop, insetBottom;
+
+    /** Đặt ô hình của mình ở (x, y), giữ trọn trong màn hình (không lấn thanh trạng thái / điều hướng). */
+    private void placeLocal(float x, float y) {
+        View p = (View) localView.getParent();
+        if (p == null || p.getWidth() == 0) return;
+        float w = localView.getWidth() > 0 ? localView.getWidth() : dp(108);
+        float h = localView.getHeight() > 0 ? localView.getHeight() : dp(144);
+        float m = dp(8);
+        localView.setX(Math.max(m, Math.min(x, p.getWidth() - w - m)));
+        localView.setY(Math.max(insetTop + m, Math.min(y, p.getHeight() - insetBottom - h - m)));
+    }
 
     // ------------------------------------------------------------------ tự ẩn nút khi gọi video
 
@@ -559,11 +572,39 @@ public class CallActivity extends Activity implements CallManager.Listener {
                 }
             });
             localView.setClipToOutline(true);
-            FrameLayout.LayoutParams llp = new FrameLayout.LayoutParams(dp(108), dp(144), Gravity.BOTTOM | Gravity.END);
-            llp.bottomMargin = dp(150); // trên hàng nút
-            llp.rightMargin = dp(16);
-            localView.setOnClickListener(v -> { CallVideo cv = CallManager.get().video(); if (cv != null) cv.switchCamera(); });
-            frame.addView(localView, llp);
+            // Ô hình của mình: kéo đi đâu cũng được (giữ trong màn hình), mặc định góc trên bên phải dưới thanh trên;
+            // chạm (không kéo) thì đổi camera.
+            frame.addView(localView, new FrameLayout.LayoutParams(dp(108), dp(144), Gravity.TOP | Gravity.START));
+            int slop = android.view.ViewConfiguration.get(this).getScaledTouchSlop();
+            localView.setOnTouchListener(new View.OnTouchListener() {
+                float downX, downY, startX, startY;
+                boolean moved;
+                @Override public boolean onTouch(View v, android.view.MotionEvent e) {
+                    switch (e.getActionMasked()) {
+                        case android.view.MotionEvent.ACTION_DOWN:
+                            downX = e.getRawX(); downY = e.getRawY(); startX = v.getX(); startY = v.getY(); moved = false;
+                            return true;
+                        case android.view.MotionEvent.ACTION_MOVE: {
+                            float dx = e.getRawX() - downX, dy = e.getRawY() - downY;
+                            if (!moved && Math.hypot(dx, dy) > slop) moved = true;
+                            if (moved) placeLocal(startX + dx, startY + dy);
+                            return true;
+                        }
+                        case android.view.MotionEvent.ACTION_UP:
+                            if (!moved) { CallVideo cv = CallManager.get().video(); if (cv != null) cv.switchCamera(); }
+                            return true;
+                    }
+                    return true;
+                }
+            });
+            frame.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+                if (!localPlaced && r - l > 0) {
+                    localPlaced = true;
+                    placeLocal(r - l - dp(16) - dp(108), insetTop + dp(76)); // góc trên phải, dưới thanh trên
+                } else {
+                    placeLocal(localView.getX(), localView.getY()); // khung đổi cỡ (thoát PiP…): giữ trong màn hình
+                }
+            });
         }
 
         LinearLayout root = new LinearLayout(this);
@@ -582,8 +623,11 @@ public class CallActivity extends Activity implements CallManager.Listener {
                 bottom = bars.bottom;
             }
             root.setPadding(dp(16), top + dp(12), dp(16), bottom + dp(28));
+            insetTop = top;
+            insetBottom = bottom;
             return ins;
         });
+        if (localView != null) localView.bringToFront(); // nằm trên các nút để luôn kéo được
 
         // Thanh trên: nút quay lại, giữa là chữ "Zalo" — khi đã nối thì thay bằng thông số cuộc gọi (ping, tốc độ tiếng /
         // hình; nền tối trong 50%, tắt được trong Cài đặt → Cuộc gọi), bên phải là nút đổi camera (gọi video).

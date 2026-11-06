@@ -392,6 +392,7 @@ final class CallVideo {
         int seq16 = ((b[off + 2] & 0xFF) << 8) | (b[off + 3] & 0xFF);
         boolean gap = lastRxSeq >= 0 && seq16 != ((lastRxSeq + 1) & 0xFFFF);
         lastRxSeq = seq16;
+        synchronized (rx) { rx.update(seq16); }
         int n = end - p;
         boolean annexb = n > 4 && b[p] == 0 && b[p + 1] == 0 && (b[p + 2] == 1 || (b[p + 2] == 0 && b[p + 3] == 1));
         if (annexb) {
@@ -521,8 +522,75 @@ final class CallVideo {
             int fmt = b[i] & 0x1F, pt = b[i + 1] & 0xFF;
             int words = ((b[i + 2] & 0xFF) << 8) | (b[i + 3] & 0xFF);
             if (pt == 206 && (fmt == 1 || fmt == 4)) { pliRecv++; requestKeyframe(); }
+            if (pt == 200 && i + 14 <= end) { // SR của bên kia: giữ NTP giữa để báo lại (LSR/DLSR -> bên kia đo RTT)
+                synchronized (rx) {
+                    rx.lastSr = ((b[i + 10] & 0xFF) << 24) | ((b[i + 11] & 0xFF) << 16) | ((b[i + 12] & 0xFF) << 8) | (b[i + 13] & 0xFF);
+                    rx.lastSrAt = System.currentTimeMillis();
+                }
+            }
             i += (words + 1) * 4;
         }
+    }
+
+    /** Thống kê nhận luồng hình (RFC 3550 A.1, như ctdozlite RxStats): mất gói, số thứ tự cao nhất, SR gần nhất. */
+    private static final class RxStats {
+        boolean started;
+        int baseSeq, maxSeq, cycles, received, expectedPrior, receivedPrior, lastSr;
+        long lastSrAt;
+
+        void update(int seq) {
+            if (!started) { started = true; baseSeq = maxSeq = seq; }
+            else {
+                int d = (seq - maxSeq) & 0xFFFF;
+                if (d != 0 && d < 0x8000) {
+                    if (seq < maxSeq) cycles += 1 << 16;
+                    maxSeq = seq;
+                }
+            }
+            received++;
+        }
+
+        /** Khối báo cáo 24 byte về {@code ssrc}; chuyển sang chu kỳ mới. */
+        void block(java.nio.ByteBuffer b, int ssrc) {
+            int extMax = cycles | maxSeq;
+            int expected = extMax - baseSeq + 1;
+            int lostTotal = Math.max(0, Math.min(expected - received, 0x7FFFFF));
+            int expInt = expected - expectedPrior, rcvInt = received - receivedPrior;
+            expectedPrior = expected;
+            receivedPrior = received;
+            int lostInt = Math.max(0, expInt - rcvInt);
+            int fraction = expInt <= 0 ? 0 : Math.min(255, (int) ((long) lostInt * 256 / expInt));
+            long dlsr = lastSrAt == 0 ? 0 : (System.currentTimeMillis() - lastSrAt) * 65536 / 1000;
+            b.putInt(ssrc).put((byte) fraction).put((byte) (lostTotal >> 16)).putShort((short) lostTotal)
+                    .putInt(extMax).putInt(0).putInt(lastSr).putInt((int) dlsr);
+        }
+    }
+
+    private final RxStats rx = new RxStats();
+
+    /**
+     * Phản hồi cho bên gửi hình, mỗi 2 giây: RR (mất gói, số thứ tự, LSR/DLSR) + REMB (PSFB fmt 15) mức bitrate tối đa
+     * mình nhận được. Bộ điều tiết (GCC) của Zalo cần cả hai để tăng chất lượng: không có RR thì không biết đường truyền
+     * tốt, không có REMB thì giữ mức khởi đầu thấp (ctdozlite gửi SR+SDES+REMB mỗi 2 giây).
+     */
+    void sendFeedback(int bps) {
+        int media = peerSsrc;
+        if (media == 0) return;
+        int exp = 0, mant = bps;
+        while (mant > 0x3FFFF && exp < 63) { mant >>= 1; exp++; }
+        java.nio.ByteBuffer b = java.nio.ByteBuffer.allocate(8 + 24 + 24); // big-endian
+        synchronized (rx) {
+            if (rx.started) {
+                b.put((byte) 0x81).put((byte) 201).putShort((short) 7).putInt(ssrc);
+                rx.block(b, media);
+            } else {
+                b.put((byte) 0x80).put((byte) 201).putShort((short) 1).putInt(ssrc);
+            }
+        }
+        b.put((byte) 0x8F).put((byte) 206).putShort((short) 5).putInt(ssrc).putInt(0)  // PSFB fmt 15
+                .put(new byte[]{'R', 'E', 'M', 'B'}).put((byte) 1)
+                .put((byte) ((exp << 2) | ((mant >> 16) & 0x03))).putShort((short) mant).putInt(media);
+        out.sendRtcp(b.array(), b.position(), true);
     }
 
     private void sendPli() {

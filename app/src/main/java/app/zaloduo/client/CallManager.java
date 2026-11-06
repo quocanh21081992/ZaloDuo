@@ -28,6 +28,8 @@ final class CallManager {
 
     private static final CallManager INSTANCE = new CallManager();
     private static final long NO_ANSWER_MS = 60_000;
+    /** Bitrate tối đa báo cho bên gửi hình (REMB): đủ cho 720p 30 fps. */
+    private static final int REMB_BPS = 2_500_000;
     static final String CODEC = "[{\"dynamicFptime\":0,\"frmPtime\":20,\"name\":\"opus/16000/1\",\"payload\":112}]\n";
 
     static CallManager get() { return INSTANCE; }
@@ -423,8 +425,17 @@ final class CallManager {
             App.MAIN.post(() -> KeepAliveService.setSpeaker(app, true)); // gọi video: loa ngoài như Zalo
             // ZaloCall.exe gửi IncallNegotiateInfo đều đặn trong cuộc gọi video.
             App.IO.execute(() -> {
-                while (current(myGen) && video == v) {
+                long lastRv = r.rxVideoBytes, lastAt = System.currentTimeMillis();
+                for (int n = 1; current(myGen) && video == v; n++) {
                     r.sendVideoNegotiate();
+                    v.sendFeedback(REMB_BPS); // RR + REMB: để bên kia tăng bitrate hình
+                    if (n % 5 == 0) { // nhật ký: tốc độ / cỡ hình nhận mỗi 10 giây (xem chất lượng hình bên kia gửi)
+                        long now = System.currentTimeMillis(), rv = r.rxVideoBytes;
+                        CallEvents.log("video rx " + kbps(rv - lastRv, (now - lastAt) / 1000.0) + " kbps size="
+                                + v.remoteSize() + " ping=" + r.pingMs);
+                        lastRv = rv;
+                        lastAt = now;
+                    }
                     try { Thread.sleep(2000); } catch (InterruptedException e) { return; }
                 }
             });

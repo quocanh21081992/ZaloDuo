@@ -10,8 +10,8 @@ android {
         applicationId = 'app.zaloduo.client'
         minSdk = 26
         targetSdk = 35
-        versionCode = 23
-        versionName = '3.0-beta5'
+        versionCode = 24
+        versionName = '3.0-beta6'
     }
 
     // Khóa ký cố định: mọi bản build (máy bạn hay GitHub Actions) đều cùng chữ ký, nên cài bản mới đè lên bản cũ được

@@ -3780,8 +3780,8 @@
         var conv = openConversation(), ok = callable(conv), grp = isGroupConv(conv);
         if (old.length) {
           old.forEach(function (x) {
-            // Nhóm: chỉ gọi thoại (chưa hỗ trợ video nhóm).
-            x.style.display = ok && !(grp && x.classList.contains('zd-call-video')) ? '' : 'none';
+            // Nhóm: như Zalo trên điện thoại chỉ có nút gọi video (bắt đầu cuộc gọi nhóm); 1-1 có cả hai.
+            x.style.display = ok && !(grp && x.classList.contains('zd-call-voice')) ? '' : 'none';
           });
           return;
         }
