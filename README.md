@@ -13,10 +13,17 @@
 
 Nchung là thông báo Zalo sẽ đối xử ZaloDuo giống việc bạn sử dụng Zalo PC.
 
+**Cuộc gọi (từ bản 3.0 beta):** Zalo Web không gọi được nên ZaloDuo tự làm phần gọi riêng, kết nối như Zalo PC.
+1. Gọi thoại và gọi video 1-1: gọi đi, nhận cuộc gọi đến (popup khi đang dùng máy, toàn màn hình khi máy khoá).
+2. Màn hình gọi: loa ngoài, tắt/bật mic, tắt/bật camera, đổi camera trước/sau, kéo ô hình của mình tới chỗ bất kỳ, chụm/tách 2 ngón để vừa khung/toàn màn hình, nút và thông tin tự ẩn khi gọi video (chạm để hiện lại).
+3. Cửa sổ nổi (PiP) khi gọi video: vừa gọi vừa chat hoặc dùng app khác, có nút Mic và Kết thúc.
+4. Thông số cuộc gọi (ping, tốc độ tiếng/hình, mất gói, độ phân giải), bật/tắt trong Cài đặt.
+5. Cài đặt → Cuộc gọi: bật/tắt nhận cuộc gọi đến, nhạc chuông, giữ kết nối khi khoá màn hình.
+6. Gọi nhóm: đang thử nghiệm.
+
 **Nhược điểm:**
-1. ZaloDuo k có cuộc gọi do Zalo web k hỗ trợ.
-2. App cần đc ngoại lệ tối ưu hoá pin tối đa do app k bắn thông báo được qua FCM nên cần duy trì websocket với Zalo để nhận và bạn notification. Đối với Huawei/Honor cần tắt Quản lý tự động và bật đủ Tự khởi chạy - Khởi chạy thứ cấp - Chạy dưới nền hệ thống
-3. Chức năng phụ thuộc vào Zalo Web k đầy đủ như Zalo mobile nhưng đủ dùng với 1 máy phụ.
+1. App cần đc ngoại lệ tối ưu hoá pin tối đa do app k bắn thông báo được qua FCM nên cần duy trì websocket với Zalo để nhận và bạn notification. Đối với Huawei/Honor cần tắt Quản lý tự động và bật đủ Tự khởi chạy - Khởi chạy thứ cấp - Chạy dưới nền hệ thống
+2. Chức năng phụ thuộc vào Zalo Web k đầy đủ như Zalo mobile nhưng đủ dùng với 1 máy phụ.
 
 **Cách vào cài đặt app:** giữ icon app ngoài màn hình sẽ có menu Cài đặt
 
