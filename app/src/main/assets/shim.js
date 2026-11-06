@@ -3772,27 +3772,34 @@
       b.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); callOpen('header', video); }, true);
       return b;
     }
-    setInterval(function () {
+    function syncCallButtons() {
       safe(function () {
         var inChat = document.documentElement.classList.contains('zd-chat') || !!document.getElementById('messageViewScroll');
         var old = document.querySelectorAll('.zd-call-btn');
         if (!inChat) { old.forEach(function (x) { x.remove(); }); return; }
         var conv = openConversation(), ok = callable(conv), grp = isGroupConv(conv);
-        if (old.length) {
-          old.forEach(function (x) {
-            // Nhóm: như Zalo trên điện thoại chỉ có nút gọi video (bắt đầu cuộc gọi nhóm); 1-1 có cả hai.
-            x.style.display = ok && !(grp && x.classList.contains('zd-call-voice')) ? '' : 'none';
-          });
-          return;
-        }
+        // Nhóm: như Zalo trên điện thoại chỉ có nút gọi video (bắt đầu cuộc gọi nhóm); 1-1 có cả hai.
+        function show(x) { x.style.display = ok && !(grp && x.classList.contains('zd-call-voice')) ? '' : 'none'; }
+        if (old.length) { old.forEach(show); return; }
         if (!ok) return;
         var icon = document.querySelector('.search-message-entry__icon');
         var anchor = icon && icon.closest('.rel');
         if (!anchor || !anchor.parentElement) return;
-        anchor.parentElement.insertBefore(headerButton('zd-call-voice', 'fa-outline-call', 'Gọi thoại', false), anchor);
-        anchor.parentElement.insertBefore(headerButton('zd-call-video', 'fa-icon-outline-video', 'Gọi video', true), anchor);
+        [headerButton('zd-call-voice', 'fa-outline-call', 'Gọi thoại', false),
+          headerButton('zd-call-video', 'fa-icon-outline-video', 'Gọi video', true)].forEach(function (b) {
+          show(b); // ẩn/hiện ngay khi chèn: không để nút gọi thoại hiện thoáng qua trong nhóm
+          anchor.parentElement.insertBefore(b, anchor);
+        });
       });
-    }, 700);
+    }
+    setInterval(syncCallButtons, 700);
+    // Mở / đổi hội thoại: cập nhật ngay khi trang vẽ lại (gộp tối đa ~1 lần mỗi khung hình) thay vì chờ tới 0,7 giây.
+    var callBtnQueued = false;
+    new MutationObserver(function () {
+      if (callBtnQueued) return;
+      callBtnQueued = true;
+      requestAnimationFrame(function () { callBtnQueued = false; syncCallButtons(); });
+    }).observe(document.documentElement, { childList: true, subtree: true });
 
     // "Gọi lại" trong tin nhắn cuộc gọi: Zalo Web chỉ báo "hãy dùng app" — gọi bằng ZaloDuo (video nếu là cuộc gọi video).
     document.addEventListener('click', function (e) {
