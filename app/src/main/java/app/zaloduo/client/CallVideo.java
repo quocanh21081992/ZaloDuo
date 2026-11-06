@@ -100,6 +100,7 @@ final class CallVideo {
         if (camHandler != null) camHandler.post(() -> {
             closeCamera();
             if (enc != null) { try { enc.stop(); } catch (Exception ignored) { } enc.release(); enc = null; }
+            if (reader != null) { reader.close(); reader = null; }
             camThread.quitSafely();
         });
         if (decT != null) decT.interrupt();
@@ -110,7 +111,7 @@ final class CallVideo {
     /** Ô xem trước camera của mình (null = ẩn). */
     void setPreviewSurface(Surface s) {
         previewSurface = s;
-        if (camHandler != null) camHandler.post(this::restartSession);
+        if (running && camHandler != null) camHandler.post(this::restartSession); // đã dừng: luồng camera không còn
     }
 
     /** Ô hiện hình bên kia (null = đã ẩn). */
@@ -135,10 +136,49 @@ final class CallVideo {
 
     // ------------------------------------------------------------------ gửi: camera -> H.264
 
+    /*
+     * Camera trả khung hình theo hướng cảm biến (nằm ngang, 640x480); điện thoại cầm dọc thì phải xoay theo
+     * SENSOR_ORIENTATION (thường 90 với camera sau, 270 với camera trước) rồi mới mã hoá, không thì bên kia thấy hình
+     * nằm ngang. Đường đi: Camera2 -> ImageReader (YUV_420_888) -> xoay -> ảnh đầu vào của MediaCodec (YUV420Flexible,
+     * 480x640). Ô xem trước của mình là một đầu ra riêng của camera (Android tự xoay cho TextureView).
+     */
+    private android.media.ImageReader reader;
+    private int sensorRot = 90;
+    private final java.util.ArrayDeque<Integer> freeInputs = new java.util.ArrayDeque<>();
+
+    private String pickCamera(CameraManager cm) throws Exception {
+        String id = null;
+        for (String c : cm.getCameraIdList()) {
+            Integer face = cm.getCameraCharacteristics(c).get(CameraCharacteristics.LENS_FACING);
+            if (face != null && face == (front ? CameraCharacteristics.LENS_FACING_FRONT : CameraCharacteristics.LENS_FACING_BACK)) { id = c; break; }
+        }
+        if (id == null && cm.getCameraIdList().length > 0) id = cm.getCameraIdList()[0];
+        if (id != null) {
+            Integer so = cm.getCameraCharacteristics(id).get(CameraCharacteristics.SENSOR_ORIENTATION);
+            sensorRot = so == null ? 90 : so;
+        }
+        return id;
+    }
+
     private void startEncoder() {
         try {
-            MediaFormat f = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, W, H);
-            f.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+            try { pickCamera(ctx.getSystemService(CameraManager.class)); } catch (Exception ignored) { }
+            boolean portrait = sensorRot == 90 || sensorRot == 270;
+            int ow = portrait ? H : W, oh = portrait ? W : H;
+            reader = android.media.ImageReader.newInstance(W, H, android.graphics.ImageFormat.YUV_420_888, 3);
+            reader.setOnImageAvailableListener(r -> {
+                android.media.Image img = null;
+                try {
+                    img = r.acquireLatestImage();
+                    if (img != null) encodeFrame(img);
+                } catch (Exception e) {
+                    CallEvents.log("video frame " + e);
+                } finally {
+                    if (img != null) img.close();
+                }
+            }, camHandler);
+            MediaFormat f = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, ow, oh);
+            f.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
             f.setInteger(MediaFormat.KEY_BIT_RATE, BITRATE);
             f.setInteger(MediaFormat.KEY_FRAME_RATE, FPS);
             f.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2);
@@ -146,7 +186,7 @@ final class CallVideo {
             f.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel31);
             enc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
             enc.setCallback(new MediaCodec.Callback() {
-                @Override public void onInputBufferAvailable(MediaCodec c, int i) { }
+                @Override public void onInputBufferAvailable(MediaCodec c, int i) { freeInputs.add(i); }
                 @Override public void onOutputBufferAvailable(MediaCodec c, int i, MediaCodec.BufferInfo info) {
                     try {
                         ByteBuffer b = c.getOutputBuffer(i);
@@ -164,12 +204,60 @@ final class CallVideo {
                 @Override public void onOutputFormatChanged(MediaCodec c, MediaFormat f2) { }
             }, camHandler);
             enc.configure(f, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-            encSurface = enc.createInputSurface();
+            encSurface = reader.getSurface();
             enc.start();
-            CallEvents.log("video encoder " + enc.getName() + " " + W + "x" + H);
+            CallEvents.log("video encoder " + enc.getName() + " " + ow + "x" + oh + " sensorRot=" + sensorRot);
             if (camOn) openCamera();
         } catch (Exception e) {
             CallEvents.log("video encoder start failed " + e);
+        }
+    }
+
+    /** Một khung camera: xoay theo cảm biến, ghi vào ảnh đầu vào của bộ mã hoá. Chạy trên luồng camera. */
+    private void encodeFrame(android.media.Image src) {
+        MediaCodec e = enc;
+        if (e == null || !camOn) return;
+        Integer idx = freeInputs.poll();
+        if (idx == null) return; // bộ mã hoá còn bận: bỏ khung này
+        android.media.Image dst = e.getInputImage(idx);
+        if (dst == null) { e.queueInputBuffer(idx, 0, 0, 0, 0); return; }
+        int rot = sensorRot;
+        int w = src.getWidth(), h = src.getHeight();
+        android.media.Image.Plane[] sp = src.getPlanes(), dp = dst.getPlanes();
+        rotatePlane(sp[0], w, h, dp[0], rot);
+        rotatePlane(sp[1], w / 2, h / 2, dp[1], rot);
+        rotatePlane(sp[2], w / 2, h / 2, dp[2], rot);
+        e.queueInputBuffer(idx, 0, w * h * 3 / 2, src.getTimestamp() / 1000, 0);
+    }
+
+    private byte[] rowBuf = new byte[0];
+
+    /** Chép một mặt phẳng YUV (w x h) sang đích, xoay theo chiều kim đồng hồ rot độ (0/90/180/270). */
+    private void rotatePlane(android.media.Image.Plane s, int w, int h, android.media.Image.Plane d, int rot) {
+        ByteBuffer sb = s.getBuffer(), db = d.getBuffer();
+        int sRow = s.getRowStride(), sPix = s.getPixelStride(), dRow = d.getRowStride(), dPix = d.getPixelStride();
+        int need = (w - 1) * sPix + 1;
+        if (rowBuf.length < need) rowBuf = new byte[need];
+        int dLimit = db.limit();
+        for (int y = 0; y < h; y++) {
+            int start = y * sRow;
+            int len = Math.min(need, sb.limit() - start);
+            if (len <= 0) break;
+            sb.position(start);
+            sb.get(rowBuf, 0, len);
+            for (int x = 0; x < w; x++) {
+                int si = x * sPix;
+                if (si >= len) break;
+                int dx, dy;
+                switch (rot) {
+                    case 90: dx = h - 1 - y; dy = x; break;
+                    case 270: dx = y; dy = w - 1 - x; break;
+                    case 180: dx = w - 1 - x; dy = h - 1 - y; break;
+                    default: dx = x; dy = y;
+                }
+                int di = dy * dRow + dx * dPix;
+                if (di < dLimit) db.put(di, rowBuf[si]);
+            }
         }
     }
 
@@ -178,12 +266,7 @@ final class CallVideo {
         if (!running || cam != null || !camOn) return;
         try {
             CameraManager cm = ctx.getSystemService(CameraManager.class);
-            String id = null;
-            for (String c : cm.getCameraIdList()) {
-                Integer face = cm.getCameraCharacteristics(c).get(CameraCharacteristics.LENS_FACING);
-                if (face != null && face == (front ? CameraCharacteristics.LENS_FACING_FRONT : CameraCharacteristics.LENS_FACING_BACK)) { id = c; break; }
-            }
-            if (id == null && cm.getCameraIdList().length > 0) id = cm.getCameraIdList()[0];
+            String id = pickCamera(cm); // cũng cập nhật sensorRot (camera trước / sau xoay khác nhau)
             if (id == null) { CallEvents.log("no camera"); return; }
             cm.openCamera(id, new CameraDevice.StateCallback() {
                 @Override public void onOpened(CameraDevice d) {
@@ -399,6 +482,9 @@ final class CallVideo {
 
     private volatile SizeListener sizeListener;
     private volatile int remoteW, remoteH;
+
+    /** "rộng×cao" của hình bên kia, null nếu chưa giải mã được khung nào. */
+    String remoteSize() { return remoteW > 0 ? remoteW + "×" + remoteH : null; }
 
     void setSizeListener(SizeListener l) {
         sizeListener = l;

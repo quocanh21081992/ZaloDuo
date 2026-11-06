@@ -114,6 +114,7 @@ public class SettingsActivity extends Activity {
                     () -> safeStart(new Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
                             android.net.Uri.parse("package:" + getPackageName()))));
         }
+        toggle("Hiện thông số cuộc gọi (ping, tốc độ tiếng / hình) ở góc màn hình gọi", Prefs.CALL_STATS, true, null);
         ringtoneButton = button(ringtoneLabel(), this::pickRingtone);
         button("Sao chép nhật ký cuộc gọi (gửi khi báo lỗi gọi)", () -> {
             String log = CallEvents.dump();

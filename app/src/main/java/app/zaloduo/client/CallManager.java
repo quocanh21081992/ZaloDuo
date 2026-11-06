@@ -451,10 +451,13 @@ final class CallManager {
         if (stT > 0 && now > stT) {
             double sec = (now - stT) / 1000.0;
             StringBuilder sb = new StringBuilder();
-            sb.append("Ping ").append(r.pingMs < 0 ? "—" : r.pingMs + " ms");
-            sb.append("  ·  Âm thanh ↑").append(kbps(ta - stTA, sec)).append(" ↓").append(kbps(ra - stRA, sec));
-            if (isVideo) sb.append("  ·  Video ↑").append(kbps(tv - stTV, sec)).append(" ↓").append(kbps(rv - stRV, sec));
-            sb.append(" kbps");
+            sb.append("Ping  ").append(r.pingMs < 0 ? "—" : r.pingMs + " ms");
+            sb.append("\nÂm thanh  ↑").append(kbps(ta - stTA, sec)).append("  ↓").append(kbps(ra - stRA, sec)).append(" kbps");
+            if (isVideo) {
+                sb.append("\nVideo  ↑").append(kbps(tv - stTV, sec)).append("  ↓").append(kbps(rv - stRV, sec)).append(" kbps");
+                CallVideo v = video;
+                if (v != null && v.remoteSize() != null) sb.append("\nHình nhận  ").append(v.remoteSize());
+            }
             stText = sb.toString();
         }
         stT = now; stTA = ta; stRA = ra; stTV = tv; stRV = rv;

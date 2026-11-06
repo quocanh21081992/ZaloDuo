@@ -42,8 +42,13 @@ public class CallActivity extends Activity implements CallManager.Listener {
     /** Bảng màu: sáng = nền xanh Zalo; tối (Zalo để giao diện tối) = nền gần đen, nút xám. Chọn trong onCreate. */
     private int bg = 0xFF0068FF, btnBg = 0xFF0A55D6, ringBg = 0xFF2F7DFF, ringStroke = 0x55FFFFFF, onIcon = 0xFF0068FF;
 
-    private TextView title, status, initials, stats;
-    private ImageView fullBtn;
+    private TextView title, status, initials, stats, brand;
+    private ImageView switchBtn;
+
+    private void setCrop(boolean crop) {
+        cropVideo = crop;
+        applyVideoTransform();
+    }
     private boolean cropVideo;
     private int vidW, vidH;
     private ImageView avatar, speakerIcon, micIcon;
@@ -77,10 +82,13 @@ public class CallActivity extends Activity implements CallManager.Listener {
                 String t = String.format(Locale.US, "%02d:%02d", s / 60, s % 60);
                 if (m.isGroup()) t += " · " + (m.groupActiveCount() + 1) + " người";
                 status.setText(t);
-                stats.setText(m.statsLine());
+                String st = Prefs.callStats(CallActivity.this) ? m.statsLine() : "";
+                stats.setText(st);
+                stats.setVisibility(st.isEmpty() || inPip ? View.GONE : View.VISIBLE);
             } else {
-                stats.setText("");
+                stats.setVisibility(View.GONE);
             }
+            brand.setVisibility(stats.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); // thông số thay chữ "Zalo"
             status.postDelayed(this, 500);
         }
     };
@@ -159,6 +167,17 @@ public class CallActivity extends Activity implements CallManager.Listener {
             if (need.isEmpty()) startPending();
             else requestPermissions(need.toArray(new String[0]), REQ_MIC);
         }
+        if (b == null && ACTION_ANSWER.equals(i.getAction())) answerHere();
+    }
+
+    /** Nút Trả lời trên thông báo cuộc gọi đến: mở màn hình này và nghe máy. */
+    static final String ACTION_ANSWER = "app.zaloduo.client.CALL_ANSWER";
+
+    @Override
+    protected void onNewIntent(Intent i) {
+        super.onNewIntent(i);
+        setIntent(i);
+        if (ACTION_ANSWER.equals(i.getAction())) answerHere();
     }
 
     private void startPending() {
@@ -218,7 +237,138 @@ public class CallActivity extends Activity implements CallManager.Listener {
 
     @Override
     public void onBackPressed() {
-        finish(); // cuộc gọi vẫn tiếp tục (thông báo "đang gọi" của dịch vụ nền), mở lại từ thông báo hoặc nút gọi
+        leaveScreen();
+    }
+
+    /**
+     * Rời màn hình cuộc gọi (nút quay lại): gọi video đang nối thì thu vào cửa sổ nổi (PiP) — vẫn thấy hình người kia khi
+     * chat trong app hay ra ngoài; còn lại thì đóng màn hình, cuộc gọi vẫn chạy (thông báo "đang gọi" để mở lại).
+     */
+    private void leaveScreen() {
+        if (pipAllowed() && enterPip()) return;
+        finish();
+    }
+
+    // ------------------------------------------------------------------ cửa sổ nổi (PiP)
+
+    private boolean inPip, pipMuted;
+
+    private boolean pipAllowed() {
+        CallManager m = CallManager.get();
+        return m.isVideo() && m.state() == CallManager.State.CONNECTED
+                && getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE);
+    }
+
+    /** Tham số PiP: tỉ lệ theo hình người kia, hai nút Mic + Kết thúc, tự vào PiP khi về màn hình chính (12+). */
+    private android.app.PictureInPictureParams pipParams() {
+        android.app.PictureInPictureParams.Builder b = new android.app.PictureInPictureParams.Builder();
+        int w = vidW > 0 ? vidW : 3, h = vidH > 0 ? vidH : 4;
+        float r = (float) w / h;
+        if (r < 0.42f) { w = 42; h = 100; } else if (r > 2.39f) { w = 239; h = 100; } // giới hạn tỉ lệ của Android
+        b.setAspectRatio(new android.util.Rational(w, h));
+        java.util.List<android.app.RemoteAction> acts = new java.util.ArrayList<>();
+        // Nút phóng to ở giữa cửa sổ nổi là của hệ thống: bên dưới chỉ cần Mic + Kết thúc.
+        boolean muted = pipMuted = CallManager.get().muted();
+        android.app.PendingIntent mic = android.app.PendingIntent.getService(this, 120,
+                new Intent(this, KeepAliveService.class).setAction(KeepAliveService.ACTION_MIC),
+                android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT);
+        acts.add(new android.app.RemoteAction(android.graphics.drawable.Icon.createWithResource(this,
+                muted ? R.drawable.zd_ic_muted : R.drawable.zd_ic_mic),
+                muted ? "Bật mic" : "Tắt mic", muted ? "Bật micro" : "Tắt micro", mic));
+        android.app.PendingIntent end = android.app.PendingIntent.getService(this, 121,
+                new Intent(this, KeepAliveService.class).setAction(KeepAliveService.ACTION_HANGUP),
+                android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT);
+        acts.add(new android.app.RemoteAction(android.graphics.drawable.Icon.createWithResource(this, R.drawable.zd_ic_call_end),
+                "Kết thúc", "Kết thúc cuộc gọi", end));
+        b.setActions(acts);
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            b.setAutoEnterEnabled(pipAllowed());
+            b.setSeamlessResizeEnabled(true);
+        }
+        return b.build();
+    }
+
+    private boolean enterPip() {
+        try {
+            return enterPictureInPictureMode(pipParams());
+        } catch (Exception e) {
+            CallEvents.log("enter pip failed " + e);
+            return false;
+        }
+    }
+
+    /** Cập nhật tham số PiP (tỉ lệ hình, tự vào PiP) khi trạng thái / kích thước hình đổi. */
+    private void refreshPip() {
+        if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return;
+        try { setPictureInPictureParams(pipParams()); } catch (Exception ignored) { }
+    }
+
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        // Android 11 trở xuống không tự vào PiP: bấm Home khi đang gọi video thì vào tay.
+        if (android.os.Build.VERSION.SDK_INT < 31 && pipAllowed()) enterPip();
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean pip, android.content.res.Configuration cfg) {
+        super.onPictureInPictureModeChanged(pip, cfg);
+        inPip = pip;
+        // Trong cửa sổ nổi chỉ hiện hình người kia (lấp đầy khung), ẩn mọi thứ khác.
+        int other = pip ? View.GONE : View.VISIBLE;
+        if (uiRoot != null) uiRoot.setVisibility(other);
+        if (localView != null) localView.setVisibility(other);
+        if (switchBtn != null) switchBtn.setVisibility(other);
+        if (stats != null && pip) stats.setVisibility(View.GONE);
+        boolean wasCrop = cropVideo;
+        if (pip) setCrop(true); else setCrop(cropBeforePip);
+        if (pip) cropBeforePip = wasCrop;
+        if (!pip && CallManager.get().state() != CallManager.State.CONNECTED) finish();
+        else if (!pip) setControls(true); // về màn hình đầy đủ: hiện nút, 5 giây sau tự ẩn
+    }
+
+    private boolean cropBeforePip;
+    private View uiRoot;
+
+    // ------------------------------------------------------------------ tự ẩn nút khi gọi video
+
+    private static final long AUTO_HIDE_MS = 5000;
+    private boolean controlsShown = true, autoHideArmed;
+    private final Runnable autoHide = () -> setControls(false);
+
+    /** Đang gọi video đã nối (màn hình đầy đủ): nút và thông tin được phép tự ẩn, chỉ để lại hình. */
+    private boolean videoLive() {
+        CallManager m = CallManager.get();
+        return remoteView != null && !inPip && m.isVideo() && m.state() == CallManager.State.CONNECTED && m.video() != null;
+    }
+
+    /** Hiện / ẩn các nút và thông tin (mờ dần). Hiện lên thì sau 5 giây không thao tác lại tự ẩn. */
+    private void setControls(boolean show) {
+        if (uiRoot == null) return;
+        uiRoot.removeCallbacks(autoHide);
+        if (!show && !videoLive()) show = true; // chưa nối / đã kết thúc / cuộc gọi thoại: luôn hiện
+        controlsShown = show;
+        uiRoot.animate().cancel();
+        if (show) {
+            if (!inPip) uiRoot.setVisibility(View.VISIBLE);
+            uiRoot.animate().alpha(1f).setDuration(250).start();
+            if (videoLive()) uiRoot.postDelayed(autoHide, AUTO_HIDE_MS);
+        } else {
+            uiRoot.animate().alpha(0f).setDuration(300).withEndAction(() -> {
+                if (!controlsShown) uiRoot.setVisibility(View.GONE);
+            }).start();
+        }
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
+        // Đang hiện nút: mỗi lần chạm (bấm nút…) tính lại 5 giây trước khi tự ẩn.
+        if (ev.getActionMasked() == android.view.MotionEvent.ACTION_DOWN && controlsShown && uiRoot != null
+                && videoLive()) {
+            uiRoot.removeCallbacks(autoHide);
+            uiRoot.postDelayed(autoHide, AUTO_HIDE_MS);
+        }
+        return super.dispatchTouchEvent(ev);
     }
 
     @Override
@@ -242,10 +392,19 @@ public class CallActivity extends Activity implements CallManager.Listener {
                 break;
             case CONNECTED:
                 attachVideo();
+                refreshPip(); // bật tự vào cửa sổ nổi khi về màn hình chính
+                if (!autoHideArmed && videoLive()) { autoHideArmed = true; setControls(true); } // 5 giây sau thì ẩn nút
+                if (inPip) { // attachVideo vừa hiện lại các nút: trong cửa sổ nổi chỉ giữ hình người kia
+                    uiRoot.setVisibility(View.GONE);
+                    if (localView != null) localView.setVisibility(View.GONE);
+                    if (switchBtn != null) switchBtn.setVisibility(View.GONE);
+                }
                 break; // tick hiển thị thời gian
             case ENDED:
                 status.setText(d.isEmpty() ? "Cuộc gọi kết thúc" : d);
-                status.postDelayed(this::finish, 1500);
+                setControls(true);
+                if (inPip) finish(); // cửa sổ nổi: đóng ngay
+                else status.postDelayed(this::finish, 1500);
                 break;
             case IDLE:
                 finish();
@@ -257,6 +416,7 @@ public class CallActivity extends Activity implements CallManager.Listener {
         setToggle(speakerBtn, speakerIcon, m.speaker());
         setToggle(micBtn, micIcon, m.muted());
         micIcon.setImageResource(m.muted() ? R.drawable.zd_ic_muted : R.drawable.zd_ic_mic);
+        if (inPip && pipMuted != m.muted()) { pipMuted = m.muted(); refreshPip(); } // đổi biểu tượng mic trên cửa sổ nổi
         CallVideo v = m.video();
         if (camBtn != null) {
             boolean off = v != null && !v.cameraOn();
@@ -276,10 +436,14 @@ public class CallActivity extends Activity implements CallManager.Listener {
         remoteView.setVisibility(show ? View.VISIBLE : View.GONE);
         localView.setVisibility(show ? View.VISIBLE : View.GONE);
         avatarBox.setVisibility(show ? View.GONE : View.VISIBLE);
+        // Đang gọi video: ẩn tên lớn (chỉ giữ đồng hồ ở giữa) để hộp thông số góc trái không đè chữ; nút đổi camera
+        // chỉ có khi camera đang chạy.
+        title.setVisibility(show ? View.GONE : View.VISIBLE);
+        switchBtn.setVisibility(show ? View.VISIBLE : View.GONE);
         if (!show) return;
         if (attached != v) {
             attached = v;
-            v.setSizeListener((w, h) -> { vidW = w; vidH = h; fullBtn.setVisibility(View.VISIBLE); applyVideoTransform(); });
+            v.setSizeListener((w, h) -> { vidW = w; vidH = h; applyVideoTransform(); refreshPip(); });
             if (remoteSurface != null) v.setRemoteSurface(remoteSurface);
             if (localSurface != null) v.setPreviewSurface(localSurface);
         }
@@ -303,6 +467,9 @@ public class CallActivity extends Activity implements CallManager.Listener {
         android.view.TextureView tv = new android.view.TextureView(this);
         tv.setSurfaceTextureListener(new android.view.TextureView.SurfaceTextureListener() {
             @Override public void onSurfaceTextureAvailable(android.graphics.SurfaceTexture st, int w, int h) {
+                // Ô xem trước: camera đổ đúng 4:3 (640x480, Android tự xoay thành 3:4 khi cầm dọc) khớp với ô 108x144;
+                // để mặc định thì camera chọn cỡ khác (thường 16:9) và hình bị kéo giãn.
+                if (!remote) st.setDefaultBufferSize(CallVideo.W, CallVideo.H);
                 android.view.Surface s = new android.view.Surface(st);
                 if (remote) remoteSurface = s; else localSurface = s;
                 CallVideo v = attached;
@@ -404,6 +571,7 @@ public class CallActivity extends Activity implements CallManager.Listener {
         root.setGravity(Gravity.CENTER_HORIZONTAL);
         root.setPadding(dp(16), dp(12), dp(16), dp(28));
         frame.addView(root, new FrameLayout.LayoutParams(-1, -1));
+        uiRoot = root;
         // Android 15+ (targetSdk 35) vẽ tràn dưới thanh trạng thái / điều hướng: chừa đúng chiều cao của chúng.
         frame.setOnApplyWindowInsetsListener((v, ins) -> {
             int top = ins.getSystemWindowInsetTop(), bottom = ins.getSystemWindowInsetBottom();
@@ -414,27 +582,45 @@ public class CallActivity extends Activity implements CallManager.Listener {
                 bottom = bars.bottom;
             }
             root.setPadding(dp(16), top + dp(12), dp(16), bottom + dp(28));
-            if (fullBtn != null) {
-                FrameLayout.LayoutParams fl = (FrameLayout.LayoutParams) fullBtn.getLayoutParams();
-                fl.topMargin = top + dp(12);
-                fullBtn.setLayoutParams(fl);
-            }
             return ins;
         });
 
-        // Thanh trên: nút quay lại, chữ "Zalo"
+        // Thanh trên: nút quay lại, giữa là chữ "Zalo" — khi đã nối thì thay bằng thông số cuộc gọi (ping, tốc độ tiếng /
+        // hình; nền tối trong 50%, tắt được trong Cài đặt → Cuộc gọi), bên phải là nút đổi camera (gọi video).
         FrameLayout bar = new FrameLayout(this);
+        bar.setMinimumHeight(dp(48));
         ImageView back = new ImageView(this);
         back.setImageResource(R.drawable.zd_ic_back);
         back.setScaleType(ImageView.ScaleType.CENTER);
         back.setImageTintList(ColorStateList.valueOf(0xCCFFFFFF));
         back.setBackground(circle(btnBg));
-        back.setOnClickListener(v -> finish());
+        back.setOnClickListener(v -> leaveScreen());
         back.setContentDescription("Quay lại");
         bar.addView(back, new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.START | Gravity.CENTER_VERTICAL));
-        TextView brand = text("Zalo", 24, true);
+        brand = text("Zalo", 24, true);
         bar.addView(brand, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
-        root.addView(bar, new LinearLayout.LayoutParams(-1, dp(48)));
+        stats = text("", 11, false);
+        stats.setGravity(Gravity.START);
+        stats.setLineSpacing(0, 1.1f);
+        GradientDrawable sbg = new GradientDrawable();
+        sbg.setCornerRadius(dp(8));
+        sbg.setColor(0x80000000);
+        stats.setBackground(sbg);
+        stats.setPadding(dp(8), dp(4), dp(8), dp(4));
+        stats.setVisibility(View.GONE);
+        bar.addView(stats, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+        if (videoMode) {
+            switchBtn = new ImageView(this);
+            switchBtn.setImageResource(R.drawable.zd_ic_cam_switch);
+            switchBtn.setScaleType(ImageView.ScaleType.CENTER);
+            switchBtn.setBackground(circle(btnBg)); // giống hệt nút quay lại
+            switchBtn.setImageTintList(ColorStateList.valueOf(0xCCFFFFFF));
+            switchBtn.setContentDescription("Đổi camera");
+            switchBtn.setVisibility(View.GONE);
+            switchBtn.setOnClickListener(v -> { CallVideo cv = CallManager.get().video(); if (cv != null) cv.switchCamera(); });
+            bar.addView(switchBtn, new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.END | Gravity.CENTER_VERTICAL));
+        }
+        root.addView(bar, new LinearLayout.LayoutParams(-1, -2));
 
         // Ảnh đại diện
         FrameLayout av = new FrameLayout(this);
@@ -475,41 +661,41 @@ public class CallActivity extends Activity implements CallManager.Listener {
         lp.topMargin = dp(6);
         root.addView(status, lp);
 
-        // Ping, tốc độ tiếng / hình (chỉ khi đã nối)
-        stats = text("", 12, false);
-        stats.setGravity(Gravity.CENTER);
-        stats.setAlpha(0.75f);
-        stats.setShadowLayer(4, 0, 1, 0x80000000);
-        lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.topMargin = dp(4);
-        root.addView(stats, lp);
-
         if (videoMode) {
-            // Nút toàn màn hình: mặc định video đúng tỉ lệ (có viền), bấm để cắt cho lấp đầy màn hình dài của điện thoại.
-            fullBtn = new ImageView(this);
-            fullBtn.setImageResource(R.drawable.zd_ic_fullscreen);
-            fullBtn.setScaleType(ImageView.ScaleType.CENTER);
-            fullBtn.setBackground(circle(0x66000000));
-            fullBtn.setContentDescription("Toàn màn hình");
-            fullBtn.setVisibility(View.GONE);
-            fullBtn.setOnClickListener(v -> {
-                cropVideo = !cropVideo;
-                fullBtn.setImageResource(cropVideo ? R.drawable.zd_ic_fullscreen_exit : R.drawable.zd_ic_fullscreen);
-                applyVideoTransform();
-            });
-            FrameLayout.LayoutParams fl = new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP | Gravity.END);
-            fl.topMargin = dp(48);
-            fl.rightMargin = dp(16);
-            frame.addView(fullBtn, fl);
+            // Một chạm trên hình: ẩn / hiện các nút và thông tin. Hai ngón trên hình bên kia: tách ra = toàn màn hình (cắt cho lấp đầy), chụm vào = về đúng tỉ lệ (có viền).
+            android.view.ScaleGestureDetector pinch = new android.view.ScaleGestureDetector(this,
+                    new android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                        float total = 1f;
+                        @Override public boolean onScaleBegin(android.view.ScaleGestureDetector d) { total = 1f; return true; }
+                        @Override public boolean onScale(android.view.ScaleGestureDetector d) {
+                            total *= d.getScaleFactor();
+                            if (!cropVideo && total > 1.15f) setCrop(true);
+                            else if (cropVideo && total < 0.87f) setCrop(false);
+                            return true;
+                        }
+                    });
+            android.view.GestureDetector tap = new android.view.GestureDetector(this,
+                    new android.view.GestureDetector.SimpleOnGestureListener() {
+                        @Override public boolean onDown(android.view.MotionEvent e) { return true; }
+                        @Override public boolean onSingleTapUp(android.view.MotionEvent e) {
+                            setControls(!controlsShown);
+                            return true;
+                        }
+                    });
+            remoteView.setOnTouchListener((v, ev) -> { pinch.onTouchEvent(ev); tap.onTouchEvent(ev); return true; });
             remoteView.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> applyVideoTransform());
         }
 
         root.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
 
-        // Nút: Loa / Kết thúc / Mic; gọi video thêm Camera và Đổi camera
-        btnSize = videoMode ? 60 : 72;
+        // Nút — thoại: Loa / Kết thúc / Mic (như Zalo); video: Loa / Camera / Mic / Kết thúc (nút đỏ ngoài cùng bên phải).
+        btnSize = videoMode ? 64 : 72;
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER);
+        View.OnClickListener endClick = v -> {
+            if (CallManager.get().busy()) CallManager.get().hangup(null);
+            else finish();
+        };
         speakerIcon = new ImageView(this);
         speakerBtn = roundButton(row, speakerIcon, R.drawable.ic_speaker, btnBg, "Loa",
                 v -> CallManager.get().setSpeaker(!CallManager.get().speaker()));
@@ -521,21 +707,13 @@ public class CallActivity extends Activity implements CallManager.Listener {
                 CallManager.get().setCameraOn(!cv.cameraOn());
                 localView.setAlpha(cv.cameraOn() ? 1f : 0f);
             });
+        } else {
+            roundButton(row, new ImageView(this), R.drawable.zd_ic_call_end, RED, "Kết thúc", endClick);
         }
-        ImageView endIcon = new ImageView(this);
-        roundButton(row, endIcon, R.drawable.zd_ic_call_end, RED, "Kết thúc", v -> {
-            if (CallManager.get().busy()) CallManager.get().hangup(null);
-            else finish();
-        });
         micIcon = new ImageView(this);
         micBtn = roundButton(row, micIcon, R.drawable.zd_ic_mic, btnBg, "Mic",
                 v -> CallManager.get().setMuted(!CallManager.get().muted()));
-        if (videoMode) {
-            roundButton(row, new ImageView(this), R.drawable.zd_ic_cam_switch, btnBg, "Đổi cam", v -> {
-                CallVideo cv = CallManager.get().video();
-                if (cv != null) cv.switchCamera();
-            });
-        }
+        if (videoMode) roundButton(row, new ImageView(this), R.drawable.zd_ic_call_end, RED, "Kết thúc", endClick);
         root.addView(row, new LinearLayout.LayoutParams(-1, -2));
         normalRow = row;
 

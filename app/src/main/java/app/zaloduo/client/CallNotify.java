@@ -39,7 +39,8 @@ final class CallNotify {
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
         String channel;
-        if (incoming) channel = App.CH_CALL_INCOMING;
+        // Màn hình cuộc gọi đang hiện thì đã thấy cuộc gọi đến: không bật popup chồng lên (kênh im lặng).
+        if (incoming) channel = CallActivity.visible ? App.CH_SERVICE : App.CH_CALL_INCOMING;
         else channel = CallActivity.visible ? App.CH_SERVICE : App.CH_CALL_ONGOING;
 
         Notification.Builder b = new Notification.Builder(c, channel)
@@ -51,8 +52,10 @@ final class CallNotify {
                 .setCategory(Notification.CATEGORY_CALL)
                 .addPerson(who);
         if (incoming) {
-            PendingIntent answer = PendingIntent.getService(c, 112,
-                    new Intent(c, KeepAliveService.class).setAction(KeepAliveService.ACTION_ANSWER),
+            // Nút Trả lời mở thẳng màn hình cuộc gọi (kèm lệnh nghe máy): Android 10+ chặn dịch vụ nền tự mở màn hình.
+            PendingIntent answer = PendingIntent.getActivity(c, 112,
+                    new Intent(c, CallActivity.class).setAction(CallActivity.ACTION_ANSWER)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP),
                     PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
             b.setStyle(Notification.CallStyle.forIncomingCall(who, hangup, answer))
                     .setContentText(m.isVideo() ? "Cuộc gọi video Zalo đến" : "Cuộc gọi thoại Zalo đến")

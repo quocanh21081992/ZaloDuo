@@ -47,6 +47,10 @@ final class Prefs {
     /** Nhận cuộc gọi đến bằng app: nâng phiên lên kiểu Zalo PC để máy chủ gửi lời mời (CallManager). */
     static boolean incomingCalls(Context c) { return bool(c, INCOMING_CALLS, true); }
 
+    static final String CALL_STATS = "call_stats";
+    /** Hiện thông số cuộc gọi (ping, tốc độ tiếng/hình) ở góc màn hình cuộc gọi. */
+    static boolean callStats(Context c) { return bool(c, CALL_STATS, true); }
+
     static final String KEEP_ON_LOCK = "keep_on_lock";
     /** Giữ kết nối Zalo cả khi khoá màn hình (đánh thức máy mỗi 2 phút) — để nhận cuộc gọi đến; tốn pin hơn. */
     static boolean keepOnLock(Context c) { return bool(c, KEEP_ON_LOCK, false); }

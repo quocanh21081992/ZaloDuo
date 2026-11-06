@@ -27,6 +27,7 @@ public class KeepAliveService extends Service {
     static final int NOTIF_ID = 1;
     static final String ACTION_SPEAKER = "app.zaloduo.client.SPEAKER";
     static final String ACTION_HANGUP = "app.zaloduo.client.HANGUP";
+    static final String ACTION_MIC = "app.zaloduo.client.MIC";
     static final String ACTION_ANSWER = "app.zaloduo.client.ANSWER";
 
     /** Cuộc gọi của app đổi trạng thái / màn hình cuộc gọi ẩn-hiện: dựng lại thông báo. Gọi trên luồng chính. */
@@ -144,6 +145,7 @@ public class KeepAliveService extends Service {
         goForeground();
         if (intent != null && ACTION_SPEAKER.equals(intent.getAction())) setSpeaker(this, !speakerOn);
         if (intent != null && ACTION_HANGUP.equals(intent.getAction())) CallManager.get().hangup(null);
+        if (intent != null && ACTION_MIC.equals(intent.getAction())) CallManager.get().setMuted(!CallManager.get().muted());
         if (intent != null && ACTION_ANSWER.equals(intent.getAction())) CallActivity.answerFromNotification(this);
         if (intent != null && ACTION_CHECK.equals(intent.getAction())) check();
         else scheduleCheck(this, CHECK_ON_MS);

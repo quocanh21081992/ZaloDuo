@@ -3752,11 +3752,11 @@
       return true;
     }
 
-    // Icon "thêm thành viên" của Zalo vẽ thấp hơn các icon khác ~1px (đo trên ảnh chụp: đáy nét 136 so với 133–134);
-    // đứng cạnh nút gọi thì lộ rõ, nên nâng nó lên 1px — chỉ trong hàng có nút gọi.
+    // Bỏ nút "thêm thành viên / tạo nhóm" trên thanh trên của mọi khung chat cho đỡ chật (vẫn thêm được trong
+    // Thông tin hội thoại). Hàng nút đó là hàng có ô tìm tin nhắn.
     safe(function () {
       var st = document.createElement('style');
-      st.textContent = ':has(> .zd-call-btn) > .rel i[class*="_Create_24_Line"] { position: relative; top: -1px; }';
+      st.textContent = ':has(> .rel .search-message-entry__icon) > .rel:has(i[class*="_Create_24_Line"]) { display: none !important; }';
       (document.head || document.documentElement).appendChild(st);
     });
     // Nút gọi thoại / gọi video trên thanh trên của khung chat (Zalo Web không có), đặt trước ô tìm tin nhắn.
