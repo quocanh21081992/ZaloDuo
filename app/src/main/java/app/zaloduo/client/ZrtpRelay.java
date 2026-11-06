@@ -303,7 +303,7 @@ final class ZrtpRelay {
     private int negoSeq = 1;
 
     /**
-     * ZRTP IncallNegotiateInfo (cmd 0x20, sub 0x14) với H264DecCapacityInfo(720p, 30 fps) + NegoNetworkInfo — ZaloCall.exe
+     * ZRTP IncallNegotiateInfo (cmd 0x20, sub 0x14) với H264DecCapacityInfo(1080p, 30 fps; ZaloCall.exe báo 720p) + NegoNetworkInfo —
      * gửi định kỳ trong cuộc gọi video (ctdozlite build_zrtp_incall_negotiate_packet; ô callId mang uid bên kia).
      */
     void sendVideoNegotiate() {
@@ -311,7 +311,8 @@ final class ZrtpRelay {
         if (s == null || rtpSock == null) return;
         int seq = negoSeq++;
         ByteBuffer body = ByteBuffer.allocate(11).order(ByteOrder.BIG_ENDIAN);
-        body.putInt(seq).put((byte) 2).put(new byte[]{0x0B, 0x02, (byte) 0xD0, 0x1E}).put(new byte[]{0x29, 0x01});
+        // H264DecCapacityInfo: 0x0B, chiều cao 1080 (0x0438), 30 fps; NegoNetworkInfo 0x29 0x01
+        body.putInt(seq).put((byte) 2).put(new byte[]{0x0B, 0x04, 0x38, 0x1E}).put(new byte[]{0x29, 0x01});
         ByteBuffer bb = ByteBuffer.allocate(25 + 11).order(ByteOrder.LITTLE_ENDIAN);
         bb.put((byte) 1).put((byte) 1).putInt(seq).putInt(0).putInt(partnerUid).putInt(s.token)
                 .putShort((short) 0x0020).put((byte) 0x14).putInt(11).put(body.array());

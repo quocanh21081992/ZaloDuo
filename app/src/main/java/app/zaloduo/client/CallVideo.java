@@ -436,8 +436,13 @@ final class CallVideo {
                     Surface s = remoteSurface;
                     if (s == null || !s.isValid()) continue;
                     if (dec == null) {
-                        MediaFormat f = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, 1280, 720);
                         dec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
+                        // Cỡ khai báo quyết định bộ đệm vào: 1080p (bên kia có thể gửi 1080p), máy không giải được thì 720p.
+                        android.media.MediaCodecInfo.VideoCapabilities vc = dec.getCodecInfo()
+                                .getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).getVideoCapabilities();
+                        boolean fhd = vc != null && vc.isSizeSupported(1920, 1080);
+                        MediaFormat f = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC,
+                                fhd ? 1920 : 1280, fhd ? 1080 : 720);
                         // Bộ giải mã hỗ trợ độ trễ thấp (Android 11+): ra hình ngay từng khung, không giữ lại vài khung.
                         if (android.os.Build.VERSION.SDK_INT >= 30 && dec.getCodecInfo()
                                 .getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)

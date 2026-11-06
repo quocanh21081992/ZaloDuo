@@ -28,8 +28,8 @@ final class CallManager {
 
     private static final CallManager INSTANCE = new CallManager();
     private static final long NO_ANSWER_MS = 60_000;
-    /** Bitrate tối đa báo cho bên gửi hình (REMB): đủ cho 720p 30 fps. */
-    private static final int REMB_BPS = 2_500_000;
+    /** Bitrate tối đa báo cho bên gửi hình (REMB). Chỉ là mức trần: bên kia vẫn tự hạ theo đường truyền (mất gói / trễ). */
+    private static final int REMB_BPS = 6_000_000; // 1080p 30 fps H.264: 4–6 Mbps là nét; cao hơn gần như không thấy khác, dễ nghẽn mạng di động
     static final String CODEC = "[{\"dynamicFptime\":0,\"frmPtime\":20,\"name\":\"opus/16000/1\",\"payload\":112}]\n";
 
     static CallManager get() { return INSTANCE; }
