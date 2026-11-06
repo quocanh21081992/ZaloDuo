@@ -20,6 +20,8 @@ Nchung là thông báo Zalo sẽ đối xử ZaloDuo giống việc bạn sử d
 
 **Cách vào cài đặt app:** giữ icon app ngoài màn hình sẽ có menu Cài đặt
 
+**Nhóm Telegram:** tham gia để trao đổi, góp ý và báo lỗi: https://t.me/+cT9bjoT7nJhmZTZl
+
 **Chính sách:**
 - Ứng dụng liên quan tới dữ liệu nhạy cảm nên ứng dụng đc công khai mã nguồn tại github: quocanh21081992/ZaloDuo. Mọi người có thể tải last build ở đây.
 - Ứng dụng hoàn toàn miễn phí. Mọi người có thể fork về và tùy chỉnh theo nhu cầu cá nhân.
