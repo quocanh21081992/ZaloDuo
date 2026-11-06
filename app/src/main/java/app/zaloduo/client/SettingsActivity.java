@@ -105,6 +105,15 @@ public class SettingsActivity extends Activity {
                         if (!isIgnoringBattery()) requestIgnoreBattery(this);
                     }
                 });
+        // Màn hình cuộc gọi đến toàn màn hình khi khoá máy: Android 14+ có thể rút quyền này (chỉ để cho app gọi điện /
+        // báo thức); thiếu thì cuộc gọi đến chỉ hiện popup nhỏ, không bật màn hình.
+        if (android.os.Build.VERSION.SDK_INT >= 34) {
+            android.app.NotificationManager nm = getSystemService(android.app.NotificationManager.class);
+            boolean fsi = nm == null || nm.canUseFullScreenIntent();
+            button(fsi ? "Màn hình cuộc gọi đến khi khoá máy: đã cho phép" : "Cho phép hiện cuộc gọi đến toàn màn hình khi khoá máy",
+                    () -> safeStart(new Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                            android.net.Uri.parse("package:" + getPackageName()))));
+        }
         ringtoneButton = button(ringtoneLabel(), this::pickRingtone);
         button("Sao chép nhật ký cuộc gọi (gửi khi báo lỗi gọi)", () -> {
             String log = CallEvents.dump();
