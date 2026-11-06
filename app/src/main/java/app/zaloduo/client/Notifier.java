@@ -170,7 +170,7 @@ final class Notifier {
         try {
             for (StatusBarNotification sbn : nm(c).getActiveNotifications()) {
                 int id = sbn.getId();
-                if (id != KeepAliveService.NOTIF_ID && id != CALL_ID) nm(c).cancel(sbn.getTag(), id);
+                if (id != KeepAliveService.NOTIF_ID && id != KeepAliveService.CALL_NOTIF_ID && id != CALL_ID) nm(c).cancel(sbn.getTag(), id);
             }
         } catch (RuntimeException e) {
             Log.w(WebViewHolder.TAG, "clearMessages", e);

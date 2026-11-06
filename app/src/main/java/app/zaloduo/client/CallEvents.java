@@ -29,6 +29,20 @@ final class CallEvents {
         if (file == null) file = new File(c.getFilesDir(), "call.log");
     }
 
+    /** Phần cuối nhật ký cuộc gọi (~150 KB gần nhất) để sao chép gửi khi báo lỗi. */
+    static synchronized String dump() {
+        if (file == null || !file.exists()) return "";
+        try (java.io.RandomAccessFile f = new java.io.RandomAccessFile(file, "r")) {
+            long len = f.length(), from = Math.max(0, len - 150_000);
+            byte[] b = new byte[(int) (len - from)];
+            f.seek(from);
+            f.readFully(b);
+            return new String(b, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     static synchronized File filesDir() {
         return file == null ? null : file.getParentFile();
     }

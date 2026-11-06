@@ -97,7 +97,21 @@ public class SettingsActivity extends Activity {
         header("Cuộc gọi");
         toggle("Nhận cuộc gọi đến (thử nghiệm: báo với máy chủ Zalo app là Zalo PC — có thể làm thoát Zalo PC khác của tài khoản này)",
                 Prefs.INCOMING_CALLS, true, on -> { if (on) CallManager.get().onPageLoaded(); });
+        toggle("Giữ kết nối khi khoá màn hình (để nhận cuộc gọi khi máy khoá — tốn pin hơn: máy bị đánh thức mỗi 2 phút. "
+                        + "Nên bật thêm \"Cho phép chạy nền không giới hạn pin\")",
+                Prefs.KEEP_ON_LOCK, false, on -> {
+                    if (on) {
+                        KeepAliveService.start(this);
+                        if (!isIgnoringBattery()) requestIgnoreBattery(this);
+                    }
+                });
         ringtoneButton = button(ringtoneLabel(), this::pickRingtone);
+        button("Sao chép nhật ký cuộc gọi (gửi khi báo lỗi gọi)", () -> {
+            String log = CallEvents.dump();
+            ClipboardManager cm = getSystemService(ClipboardManager.class);
+            cm.setPrimaryClip(ClipData.newPlainText("ZaloDuo call log", log));
+            Toast.makeText(this, log.isEmpty() ? "Chưa có nhật ký cuộc gọi" : "Đã sao chép nhật ký cuộc gọi", Toast.LENGTH_LONG).show();
+        });
 
         header("Hiển thị");
         toggle("Giao diện điện thoại (danh sách chat → chạm để mở chat)", Prefs.MOBILE_UI, true,
@@ -162,6 +176,11 @@ public class SettingsActivity extends Activity {
     }
 
     // ------------------------------------------------------------------ hành động
+
+    private boolean isIgnoringBattery() {
+        android.os.PowerManager pm = getSystemService(android.os.PowerManager.class);
+        return pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
+    }
 
     static void requestIgnoreBattery(Context c) {
         try {

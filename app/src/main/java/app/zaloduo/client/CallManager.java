@@ -435,6 +435,36 @@ final class CallManager {
         if (isVideo) sendMediaState(); // báo camera đang bật
     }
 
+    private long stT, stTA, stRA, stTV, stRV;
+    private String stText = "";
+
+    /**
+     * Một dòng thông số cho màn hình cuộc gọi (gọi từ luồng chính ~2 lần/giây, tính lại mỗi giây): ping tới relay,
+     * tốc độ tiếng (và hình nếu gọi video) gửi ↑ / nhận ↓ tính cả đầu gói RTP + relay.
+     */
+    synchronized String statsLine() {
+        ZrtpRelay r = relay;
+        if (r == null || state != State.CONNECTED) return "";
+        long now = System.currentTimeMillis();
+        if (now - stT < 1000 && !stText.isEmpty()) return stText;
+        long ta = r.txAudioBytes, ra = r.rxAudioBytes, tv = r.txVideoBytes, rv = r.rxVideoBytes;
+        if (stT > 0 && now > stT) {
+            double sec = (now - stT) / 1000.0;
+            StringBuilder sb = new StringBuilder();
+            sb.append("Ping ").append(r.pingMs < 0 ? "—" : r.pingMs + " ms");
+            sb.append("  ·  Âm thanh ↑").append(kbps(ta - stTA, sec)).append(" ↓").append(kbps(ra - stRA, sec));
+            if (isVideo) sb.append("  ·  Video ↑").append(kbps(tv - stTV, sec)).append(" ↓").append(kbps(rv - stRV, sec));
+            sb.append(" kbps");
+            stText = sb.toString();
+        }
+        stT = now; stTA = ta; stRA = ra; stTV = tv; stRV = rv;
+        return stText;
+    }
+
+    private static long kbps(long bytes, double sec) {
+        return Math.round(bytes * 8 / 1000.0 / sec);
+    }
+
     synchronized boolean isVideo() { return isVideo; }
 
     /** Bộ hình của cuộc gọi video đang nối (null nếu gọi thoại / chưa nối). */
@@ -475,6 +505,8 @@ final class CallManager {
         JSONObject ext = new JSONObject();
         try { ext = new JSONObject(p.optString("extendData", "{}").trim()); } catch (Exception ignored) { }
         boolean vid = ext.optInt("callType", 0) == 1 || data.optInt("callType", 0) == 3;
+        CallEvents.log("incoming type: ext.callType=" + ext.opt("callType") + " data.callType=" + data.opt("callType")
+                + " params.callType=" + p.opt("callType") + " platform=" + p.opt("platform") + " -> video=" + vid);
         final int myGen;
         final ZrtpRelay r;
         synchronized (this) {
@@ -513,17 +545,18 @@ final class CallManager {
                 + " relay=" + inRtp);
         setState(State.INCOMING, vid ? "Cuộc gọi video đến" : "Cuộc gọi thoại đến");
         startRinging();
+        // Máy đang khoá (giữ kết nối khi khoá màn hình): giữ CPU thức suốt lúc đổ chuông, kịp xử lý nghe máy / huỷ.
+        try {
+            android.os.PowerManager pm = c.getSystemService(android.os.PowerManager.class);
+            android.os.PowerManager.WakeLock wl = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "ZaloDuo:ringing");
+            wl.setReferenceCounted(false);
+            wl.acquire(NO_ANSWER_MS + 5_000);
+        } catch (Exception ignored) { }
         final String avUrl = partnerAvatar;
         if (avUrl.startsWith("http")) App.IO.execute(() -> { // ảnh cho popup cuộc gọi đến (màn hình gọi tự tải riêng)
-            try {
-                java.net.HttpURLConnection hc = (java.net.HttpURLConnection) new java.net.URL(avUrl).openConnection();
-                hc.setConnectTimeout(6000);
-                hc.setReadTimeout(6000);
-                try (java.io.InputStream in = hc.getInputStream()) {
-                    android.graphics.Bitmap b = android.graphics.BitmapFactory.decodeStream(in);
-                    if (b != null && current(myGen)) setAvatarBitmap(b);
-                }
-            } catch (Exception ignored) { }
+            android.graphics.Bitmap b = CallActivity.loadBitmap(CallActivity.hdAvatar(avUrl));
+            if (b == null) b = CallActivity.loadBitmap(avUrl);
+            if (b != null && current(myGen)) setAvatarBitmap(b);
         });
         App.MAIN.post(() -> {
             // Đang mở app: hiện màn hình cuộc gọi ngay; ở nền: thông báo toàn màn hình (CallNotify) lo việc này.
@@ -726,10 +759,23 @@ final class CallManager {
             if (myGen != gen || !busy()) return;
             r = relay; a = audio; v = video;
             relay = null; audio = null; video = null;
+            stT = 0; stText = "";
             dur = connectedAt > 0 ? (System.currentTimeMillis() - connectedAt) / 1000 : 0;
         }
         CallEvents.log("call end (" + (byMe ? "me" : "peer/server") + "): " + why + " duration=" + dur + "s");
         stopRinging();
+        boolean wasConnected;
+        synchronized (this) { wasConnected = connectedAt > 0; }
+        // Gọi đi không ai nghe / huỷ cũng ghi (Zalo PC hiện "Cuộc gọi thoại đi · 0 phút 0 giây"); gọi đến chưa nghe thì máy
+        // chủ tự ghi "Bạn bị nhỡ".
+        boolean placed;
+        synchronized (this) { placed = !incoming && sessId != null && !sessId.isEmpty(); } // 401 đã tạo cuộc gọi trên máy chủ
+        if (!group && (wasConnected || placed) && callId != 0) {
+            // 406 logendcall (ZaloCall.exe gửi sau 409, ctdozlite): ghi cuộc gọi vào lịch sử — tin "Cuộc gọi thoại đi/đến"
+            // trong khung chat của chính mình. role 1 = người gọi, 0 = người nhận.
+            JSONArray la = new JSONArray().put(callId).put(partnerId).put(0).put("{}").put(dur).put(incoming ? 0 : 1);
+            CallSignal.call("sendLogEndCall", la, (ok, body) -> { });
+        }
         if (a != null) a.stop();
         if (v != null) v.stop();
         if (r != null) App.IO.execute(r::stop);

@@ -55,7 +55,7 @@ final class CallNotify {
                     new Intent(c, KeepAliveService.class).setAction(KeepAliveService.ACTION_ANSWER),
                     PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
             b.setStyle(Notification.CallStyle.forIncomingCall(who, hangup, answer))
-                    .setContentText("Cuộc gọi thoại Zalo đến")
+                    .setContentText(m.isVideo() ? "Cuộc gọi video Zalo đến" : "Cuộc gọi thoại Zalo đến")
                     .setFullScreenIntent(open, true);
         } else {
             b.setStyle(Notification.CallStyle.forOngoingCall(who, hangup));

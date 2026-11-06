@@ -42,7 +42,10 @@ public class CallActivity extends Activity implements CallManager.Listener {
     /** Bảng màu: sáng = nền xanh Zalo; tối (Zalo để giao diện tối) = nền gần đen, nút xám. Chọn trong onCreate. */
     private int bg = 0xFF0068FF, btnBg = 0xFF0A55D6, ringBg = 0xFF2F7DFF, ringStroke = 0x55FFFFFF, onIcon = 0xFF0068FF;
 
-    private TextView title, status, initials;
+    private TextView title, status, initials, stats;
+    private ImageView fullBtn;
+    private boolean cropVideo;
+    private int vidW, vidH;
     private ImageView avatar, speakerIcon, micIcon;
     private View speakerBtn, micBtn;
     private String pendingUid, pendingName, pendingAvatar, loadedAvatar;
@@ -74,6 +77,9 @@ public class CallActivity extends Activity implements CallManager.Listener {
                 String t = String.format(Locale.US, "%02d:%02d", s / 60, s % 60);
                 if (m.isGroup()) t += " · " + (m.groupActiveCount() + 1) + " người";
                 status.setText(t);
+                stats.setText(m.statsLine());
+            } else {
+                stats.setText("");
             }
             status.postDelayed(this, 500);
         }
@@ -273,9 +279,24 @@ public class CallActivity extends Activity implements CallManager.Listener {
         if (!show) return;
         if (attached != v) {
             attached = v;
+            v.setSizeListener((w, h) -> { vidW = w; vidH = h; fullBtn.setVisibility(View.VISIBLE); applyVideoTransform(); });
             if (remoteSurface != null) v.setRemoteSurface(remoteSurface);
             if (localSurface != null) v.setPreviewSurface(localSurface);
         }
+    }
+
+    /**
+     * TextureView mặc định kéo giãn hình cho vừa ô (méo). Đặt ma trận: giữ đúng tỉ lệ video — vừa khít (có viền) hoặc,
+     * khi bấm toàn màn hình, phủ kín ô và cắt phần thừa ở giữa.
+     */
+    private void applyVideoTransform() {
+        if (remoteView == null || vidW <= 0 || vidH <= 0) return;
+        float vw = remoteView.getWidth(), vh = remoteView.getHeight();
+        if (vw <= 0 || vh <= 0) return;
+        float scale = cropVideo ? Math.max(vw / vidW, vh / vidH) : Math.min(vw / vidW, vh / vidH);
+        android.graphics.Matrix m = new android.graphics.Matrix();
+        m.setScale(vidW * scale / vw, vidH * scale / vh, vw / 2f, vh / 2f);
+        remoteView.setTransform(m);
     }
 
     private android.view.TextureView videoView(boolean remote) {
@@ -315,19 +336,41 @@ public class CallActivity extends Activity implements CallManager.Listener {
         if (url == null || url.isEmpty() || url.equals(loadedAvatar) || !url.startsWith("http")) return;
         loadedAvatar = url;
         App.IO.execute(() -> {
-            Bitmap bmp = null;
-            try {
-                HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-                c.setConnectTimeout(8000);
-                c.setReadTimeout(8000);
-                try (InputStream in = c.getInputStream()) { bmp = BitmapFactory.decodeStream(in); }
-            } catch (Exception ignored) { }
+            Bitmap bmp = loadBitmap(hdAvatar(url));
+            if (bmp == null) bmp = loadBitmap(url);
             final Bitmap fb = bmp;
             if (fb != null) {
                 CallManager.get().setAvatarBitmap(fb);
                 runOnUiThread(() -> { avatar.setImageBitmap(fb); initials.setText(""); });
             }
         });
+    }
+
+    /**
+     * Ảnh đại diện Zalo cỡ lớn nhất có trên máy chủ ảnh: cỡ do tên máy (s120-ava-talk = 120px), lớn nhất là s240.
+     * Mọi dạng (…/2/e/1/1/57/120/<mã>.jpg, s160-26-ava-talk…/57/<mã>.jpg?key=…) đổi về s240-ava-talk…/57/240/<mã>.jpg
+     * (thử 2026-11-06: cỡ 480 trở lên không có).
+     */
+    private static final java.util.regex.Pattern AVA =
+            java.util.regex.Pattern.compile("^https?://[a-z0-9-]*ava-talk\\.zadn\\.vn/(?:.*?/)?(\\d+)/(?:\\d+/)?([0-9a-f]{32})\\.jpg");
+
+    static String hdAvatar(String url) {
+        if (url == null) return null;
+        java.util.regex.Matcher m = AVA.matcher(url);
+        return m.find() ? "https://s240-ava-talk.zadn.vn/" + m.group(1) + "/240/" + m.group(2) + ".jpg" : url;
+    }
+
+    static Bitmap loadBitmap(String url) {
+        if (url == null || !url.startsWith("http")) return null;
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(8000);
+            if (c.getResponseCode() != 200) return null;
+            try (InputStream in = c.getInputStream()) { return BitmapFactory.decodeStream(in); }
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     // ------------------------------------------------------------------ giao diện
@@ -359,8 +402,25 @@ public class CallActivity extends Activity implements CallManager.Listener {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(16), dp(36), dp(16), dp(40));
+        root.setPadding(dp(16), dp(12), dp(16), dp(28));
         frame.addView(root, new FrameLayout.LayoutParams(-1, -1));
+        // Android 15+ (targetSdk 35) vẽ tràn dưới thanh trạng thái / điều hướng: chừa đúng chiều cao của chúng.
+        frame.setOnApplyWindowInsetsListener((v, ins) -> {
+            int top = ins.getSystemWindowInsetTop(), bottom = ins.getSystemWindowInsetBottom();
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets bars = ins.getInsets(android.view.WindowInsets.Type.systemBars()
+                        | android.view.WindowInsets.Type.displayCutout());
+                top = bars.top;
+                bottom = bars.bottom;
+            }
+            root.setPadding(dp(16), top + dp(12), dp(16), bottom + dp(28));
+            if (fullBtn != null) {
+                FrameLayout.LayoutParams fl = (FrameLayout.LayoutParams) fullBtn.getLayoutParams();
+                fl.topMargin = top + dp(12);
+                fullBtn.setLayoutParams(fl);
+            }
+            return ins;
+        });
 
         // Thanh trên: nút quay lại, chữ "Zalo"
         FrameLayout bar = new FrameLayout(this);
@@ -410,9 +470,39 @@ public class CallActivity extends Activity implements CallManager.Listener {
 
         status = text("", 17, false);
         status.setGravity(Gravity.CENTER);
+        status.setShadowLayer(4, 0, 1, 0x80000000);
         lp = new LinearLayout.LayoutParams(-1, -2);
         lp.topMargin = dp(6);
         root.addView(status, lp);
+
+        // Ping, tốc độ tiếng / hình (chỉ khi đã nối)
+        stats = text("", 12, false);
+        stats.setGravity(Gravity.CENTER);
+        stats.setAlpha(0.75f);
+        stats.setShadowLayer(4, 0, 1, 0x80000000);
+        lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(4);
+        root.addView(stats, lp);
+
+        if (videoMode) {
+            // Nút toàn màn hình: mặc định video đúng tỉ lệ (có viền), bấm để cắt cho lấp đầy màn hình dài của điện thoại.
+            fullBtn = new ImageView(this);
+            fullBtn.setImageResource(R.drawable.zd_ic_fullscreen);
+            fullBtn.setScaleType(ImageView.ScaleType.CENTER);
+            fullBtn.setBackground(circle(0x66000000));
+            fullBtn.setContentDescription("Toàn màn hình");
+            fullBtn.setVisibility(View.GONE);
+            fullBtn.setOnClickListener(v -> {
+                cropVideo = !cropVideo;
+                fullBtn.setImageResource(cropVideo ? R.drawable.zd_ic_fullscreen_exit : R.drawable.zd_ic_fullscreen);
+                applyVideoTransform();
+            });
+            FrameLayout.LayoutParams fl = new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP | Gravity.END);
+            fl.topMargin = dp(48);
+            fl.rightMargin = dp(16);
+            frame.addView(fullBtn, fl);
+            remoteView.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> applyVideoTransform());
+        }
 
         root.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
 

@@ -368,7 +368,12 @@ final class CallVideo {
                     pts += 1_000_000 / FPS;
                 }
                 int o;
-                while ((o = d.dequeueOutputBuffer(info, 0)) >= 0) {
+                while ((o = d.dequeueOutputBuffer(info, 0)) != MediaCodec.INFO_TRY_AGAIN_LATER) {
+                    if (o == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                        reportSize(d.getOutputFormat());
+                        continue;
+                    }
+                    if (o < 0) continue;
                     d.releaseOutputBuffer(o, true);
                     decFrames++;
                 }
@@ -385,6 +390,32 @@ final class CallVideo {
         synchronized (this) {
             if (dec != null) { try { dec.stop(); } catch (Exception ignored) { } dec.release(); dec = null; }
         }
+    }
+
+    interface SizeListener {
+        /** Kích thước hình bên kia (đã tính vùng cắt và xoay). Luồng chính. */
+        void onRemoteSize(int width, int height);
+    }
+
+    private volatile SizeListener sizeListener;
+    private volatile int remoteW, remoteH;
+
+    void setSizeListener(SizeListener l) {
+        sizeListener = l;
+        if (l != null && remoteW > 0) l.onRemoteSize(remoteW, remoteH);
+    }
+
+    private void reportSize(MediaFormat f) {
+        int w = f.getInteger(MediaFormat.KEY_WIDTH), h = f.getInteger(MediaFormat.KEY_HEIGHT);
+        if (f.containsKey("crop-right") && f.containsKey("crop-left")) w = f.getInteger("crop-right") - f.getInteger("crop-left") + 1;
+        if (f.containsKey("crop-bottom") && f.containsKey("crop-top")) h = f.getInteger("crop-bottom") - f.getInteger("crop-top") + 1;
+        int rot = f.containsKey(MediaFormat.KEY_ROTATION) ? f.getInteger(MediaFormat.KEY_ROTATION) : 0;
+        if (rot == 90 || rot == 270) { int t = w; w = h; h = t; }
+        remoteW = w;
+        remoteH = h;
+        CallEvents.log("video remote size " + w + "x" + h + " rot=" + rot);
+        final int fw = w, fh = h;
+        App.MAIN.post(() -> { SizeListener l = sizeListener; if (l != null) l.onRemoteSize(fw, fh); });
     }
 
     private static boolean hasNal(byte[] au, int type) {

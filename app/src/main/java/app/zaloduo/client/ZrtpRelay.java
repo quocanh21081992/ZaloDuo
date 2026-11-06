@@ -62,6 +62,10 @@ final class ZrtpRelay {
     private final long startMs = System.currentTimeMillis();
     // Thống kê media
     volatile long txPkts, rxPkts;
+    /** Thống kê cho màn hình cuộc gọi: byte tiếng/hình gửi-nhận, ping tới relay đang dùng (ms, -1 = chưa có). */
+    volatile long txAudioBytes, rxAudioBytes, txVideoBytes, rxVideoBytes;
+    volatile long pingMs = -1;
+    private final long[] echoSentAt = new long[256];
 
     ZrtpRelay(int fromUid, int partnerUid, int callId, boolean caller, String sessId) {
         this.fromUid = fromUid;
@@ -149,7 +153,7 @@ final class ZrtpRelay {
         wire[0] = 0x03;
         putIntLE(wire, 1, s.token);
         System.arraycopy(rtp, 0, wire, 5, len);
-        if (send(rtpSock, wire, s.rtpAddr)) txPkts++;
+        if (send(rtpSock, wire, s.rtpAddr)) { txPkts++; txAudioBytes += wire.length; }
     }
 
     void stop() {
@@ -261,6 +265,13 @@ final class ZrtpRelay {
                 if (s != null) {
                     s.echoRecv++;
                     if (s.rttMs < 0) s.rttMs = System.currentTimeMillis() - startMs;
+                    // Ping: Echo trả lại số thứ tự ở ô ssrc/seq (byte 6..9); so với lúc gửi.
+                    int seq = getIntLE(b, 6);
+                    long sent = echoSentAt[seq & 0xFF];
+                    if (s == active && sent > 0) {
+                        long rtt = System.currentTimeMillis() - sent;
+                        if (rtt >= 0 && rtt < 5000) pingMs = pingMs < 0 ? rtt : (pingMs * 3 + rtt) / 4;
+                    }
                 }
             }
             return;
@@ -282,7 +293,9 @@ final class ZrtpRelay {
         if (n - off < 12) return;
         int pt = rawPt & 0x7F;
         rxPkts++;
-        MediaSink k = (t0 == 0x0E || pt == CallVideo.PT_DELTA || pt == CallVideo.PT_KEY) ? videoSink : sink;
+        boolean isVideo = t0 == 0x0E || pt == CallVideo.PT_DELTA || pt == CallVideo.PT_KEY;
+        if (isVideo) rxVideoBytes += n; else rxAudioBytes += n;
+        MediaSink k = isVideo ? videoSink : sink;
         if (k != null) k.onRtp(b, off, n - off);
     }
 
@@ -326,7 +339,10 @@ final class ZrtpRelay {
         wire[0] = type;
         putIntLE(wire, 1, s.token);
         System.arraycopy(data, 0, wire, 5, len);
-        if (send(rtpSock, wire, s.rtpAddr)) txPkts++;
+        if (send(rtpSock, wire, s.rtpAddr)) {
+            txPkts++;
+            if (type == 0x0D) txVideoBytes += wire.length;
+        }
     }
 
     private Server serverFor(String peer) {
@@ -336,11 +352,18 @@ final class ZrtpRelay {
 
     private void sendEcho(Server s) {
         String ts = Long.toString(System.currentTimeMillis() / 1000);
-        send(rtpSock, echoPacket(echoSeq++, ts), s.rtpAddr);
+        int seq = echoSeq++;
+        echoSentAt[seq & 0xFF] = System.currentTimeMillis();
+        send(rtpSock, echoPacket(seq, ts), s.rtpAddr);
     }
 
     private boolean send(DatagramSocket sock, byte[] data, InetSocketAddress to) {
         if (sock == null || to == null || sock.isClosed()) return false;
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            // Android cấm gửi mạng trên luồng chính (NetworkOnMainThreadException): vd. PLI khi ô hình video vừa sẵn sàng.
+            App.IO.execute(() -> send(sock, data, to));
+            return true;
+        }
         try {
             sock.send(new DatagramPacket(data, data.length, to));
             return true;
