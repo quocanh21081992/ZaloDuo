@@ -3752,6 +3752,13 @@
       return true;
     }
 
+    // Icon "thêm thành viên" của Zalo vẽ thấp hơn các icon khác ~1px (đo trên ảnh chụp: đáy nét 136 so với 133–134);
+    // đứng cạnh nút gọi thì lộ rõ, nên nâng nó lên 1px — chỉ trong hàng có nút gọi.
+    safe(function () {
+      var st = document.createElement('style');
+      st.textContent = ':has(> .zd-call-btn) > .rel i[class*="_Create_24_Line"] { position: relative; top: -1px; }';
+      (document.head || document.documentElement).appendChild(st);
+    });
     // Nút gọi thoại / gọi video trên thanh trên của khung chat (Zalo Web không có), đặt trước ô tìm tin nhắn.
     // Icon video: fa-icon-outline-video (fa-outline-video của Zalo có chữ "BETA" bên dưới nên lệch hàng).
     function headerButton(cls, icon, title, video) {

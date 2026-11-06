@@ -70,6 +70,8 @@ final class Notifier {
         if (call) nid = CALL_ID;
         else if (tag != null && !tag.isEmpty()) nid = idForTag(tag);
         else nid = nextId();
+        // Danh sách chat có thể đã báo "còn chưa đọc" trước khi thông báo này tới (shim chỉ gửi khi danh sách đổi).
+        if (!call && tag != null && !tag.isEmpty()) shownConv.put(tag, Boolean.TRUE.equals(lastUnread.get(tag)));
         if (jsId != null) {
             if (idByJsId.size() > 500) idByJsId.clear();
             idByJsId.put(jsId, nid);
@@ -124,6 +126,44 @@ final class Notifier {
         int nid = idForTag(convId);
         nm(c).cancel(nid);
         idByJsId.values().removeIf(v -> v == nid);
+        shownConv.remove(convId);
+    }
+
+    /*
+     * Hội thoại đang có thông báo -> đã thấy nó "còn chưa đọc" trong danh sách chat sau khi báo chưa. Đọc ở máy khác
+     * (điện thoại, Zalo PC): Zalo Web nhận đồng bộ, số chưa đọc về 0 -> xoá thông báo. Phải thấy "còn chưa đọc" trước,
+     * vì danh sách cũ (chưa kịp tăng số chưa đọc) có thể tới ngay sau thông báo mới và làm xoá nhầm.
+     */
+    private static final java.util.Map<String, Boolean> shownConv = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Trạng thái "còn chưa đọc" mới nhất của mỗi hội thoại trong danh sách chat. */
+    private static final java.util.Map<String, Boolean> lastUnread = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Danh sách chat mới (JsBridge.convList, JSON của shim mục 12): xoá thông báo của hội thoại đã đọc ở nơi khác. */
+    static void syncRead(Context c, String json) {
+        if (json == null) return;
+        try {
+            org.json.JSONArray a = new org.json.JSONArray(json);
+            for (int i = 0; i < a.length(); i++) {
+                org.json.JSONObject o = a.optJSONObject(i);
+                if (o == null) continue;
+                String id = o.optString("id");
+                boolean unread = o.optInt("u") > 0 || o.optInt("at") > 0 || o.optInt("ud") > 0;
+                lastUnread.put(id, unread);
+                Boolean seenUnread = shownConv.get(id);
+                if (seenUnread == null) continue;
+                if (unread) {
+                    if (!seenUnread) shownConv.put(id, true);
+                } else if (seenUnread) {
+                    shownConv.remove(id);
+                    int nid = idForTag(id);
+                    nm(c).cancel(nid);
+                    idByJsId.values().removeIf(v -> v == nid);
+                    DiagLog.add("notification cleared: conversation read on another device");
+                }
+            }
+        } catch (Exception e) {
+            Log.w(WebViewHolder.TAG, "syncRead", e);
+        }
     }
 
     static void clearMessages(Context c) {
@@ -136,6 +176,7 @@ final class Notifier {
             Log.w(WebViewHolder.TAG, "clearMessages", e);
         }
         idByJsId.values().removeIf(v -> v != CALL_ID);
+        shownConv.clear();
     }
 
     static void clearAll(Context c) {

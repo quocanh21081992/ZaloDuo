@@ -123,6 +123,7 @@ final class JsBridge {
     @JavascriptInterface
     public void convList(String t, final String json) {
         if (!ok(t) || owner.popup || json == null) return;
+        Notifier.syncRead(app, json); // đã đọc ở máy khác: xoá thông báo của hội thoại đó
         App.MAIN.post(() -> {
             MainActivity a = WebViewHolder.host();
             if (a != null) a.onConvList(json);
