@@ -2510,7 +2510,7 @@
     }
 
     var pageStart = Date.now();
-    var lastSent = '', building = false, names = {}, namesAt = 0; // tên + ảnh bạn bè / nhóm, lấy lại tối đa mỗi 60 s
+    var lastSent = '', building = false, names = {}, namesAt = 0, groupRetryAt = 0; // tên + ảnh bạn bè / nhóm, lấy lại tối đa mỗi 60 s
     /**
      * Mã các hội thoại danh sách web đang hiện (đã lọc theo Ưu tiên / Khác, Chưa đọc, Phân loại...), theo thứ tự của
      * Zalo: prop "conversations" của component cha #conversationListId (danh sách ảo hóa chỉ vẽ vài dòng trong DOM).
@@ -2564,6 +2564,7 @@
         } catch (e) { /* ignore */ }
         // Hội thoại ảo của Zalo (vd. "stranger_box" — hộp tin người lạ, mã không phải số): web chỉ hiện khi có tin.
         convs = convs.filter(function (c) { return c.isGroup || /^\d+$/.test(c.userId) || previews[c.userId]; });
+        var groupStale = false;
         var list = convs.map(function (c) {
           var id = c.userId, p = previews[id], u = unreads[id] || {}, info = names[id];
           if (!info || !info.n) {
@@ -2572,12 +2573,23 @@
             try { ci = z.profile ? z.profile.getProfileFriendByIdSync(id) : null; } catch (e) { /* ignore */ }
             try { ci = ci || (z.info && z.info.getConvByIdSync ? z.info.getConvByIdSync(id) : null); } catch (e) { /* ignore */ }
             if (ci && (ci.displayName || ci.zaloName)) {
-              info = { n: ci.displayName || ci.zaloName, a: ci.avatar || (info && info.a) || '', ms: info && info.ms, tm: info && info.tm };
+              info = { n: ci.displayName || ci.zaloName, a: ci.avatar || (info && info.a) || '', ms: info && info.ms, tm: info && info.tm,
+                fb: true };
               names[id] = info;
             }
           }
           info = info || {};
-          var name = (!c.isGroup && aliasOf(id)) || info.n || (id === me ? 'My Documents' : '') || (p && !c.isGroup && p.fromUid === id ? p.dName : '') || id;
+          // Nhóm: tên lấy trực tiếp từ hội thoại mỗi lần dựng (đổi tên nhóm hiện ngay). Nhóm mới tạo chưa có trong danh sách
+          // nhóm (chỉ có tên tạm "A, B" và không có ảnh ghép): lấy lại danh sách nhóm sớm thay vì chờ 60 giây.
+          var liveGroup = '';
+          if (c.isGroup) {
+            liveGroup = c.displayName || '';
+            if (!liveGroup) {
+              try { var gc = z.info && z.info.getConvByIdSync ? z.info.getConvByIdSync(id) : null; liveGroup = (gc && gc.displayName) || ''; } catch (e) { /* ignore */ }
+            }
+            if (!names[id] || names[id].fb || (liveGroup && liveGroup !== names[id].n)) groupStale = true;
+          }
+          var name = (!c.isGroup && aliasOf(id)) || liveGroup || info.n || (id === me ? 'My Documents' : '') || (p && !c.isGroup && p.fromUid === id ? p.dName : '') || id;
           if (name === 'Truyền File') name = 'My Documents'; // tên nội bộ của My Documents, web hiện "My Documents"
           var text = 'Chưa có tin nhắn', icon = '', miss = false;
           if (p) {
@@ -2606,6 +2618,12 @@
             u: (u.smsUnreadCount || 0) + (u.strangerUnreadCount || 0), at: u.mentionUnreadCount || 0,
             ud: u.smsUnreadNotCount || 0, p: pinned[id] || 0, mu: muted, me: id === me };
         });
+        // Có nhóm mới / vừa đổi tên: lấy lại danh sách nhóm (ảnh ghép, số người) sau ~10 giây, không đợi đủ 60 giây.
+        if (groupStale && Date.now() - namesAt > 10000 && Date.now() - groupRetryAt > 10000) {
+          groupRetryAt = Date.now();
+          namesAt = 0;
+          scheduleBuild(1000);
+        }
         var order = webOrder();
         if (order) {
           // Đúng tab lọc đang chọn trên thanh của Zalo, theo thứ tự của Zalo.
