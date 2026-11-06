@@ -25,7 +25,8 @@
   var bridge = {};
   ['showNotification', 'cancelNotification', 'permission', 'requestPermission', 'isHidden', 'mediaActive',
     'ringing', 'saveFile', 'shareFile', 'log', 'mobileState', 'systemBars', 'pageReady', 'diag', 'convList',
-    'nativeLayout', 'connState', 'needLogin', 'prefetch', 'dockState', 'connLog', 'convOpened', 'showKeyboard'].forEach(function (m) {
+    'nativeLayout', 'connState', 'needLogin', 'prefetch', 'dockState', 'connLog', 'convOpened', 'showKeyboard',
+    'callEvent', 'callSigResult', 'startCall', 'startGroupCall'].forEach(function (m) {
     bridge[m] = function () {
       var b = window.ZaloBridge;
       if (!b || typeof b[m] !== 'function') return m === 'permission' ? 'default' : undefined;
@@ -2288,6 +2289,8 @@
           var now = Date.now();
           if (tx && now - tx > 90000) connLog('ws#' + id + ' send after ' + Math.round((now - tx) / 1000) + 's silence (' + pageState() + ')');
           tx = now; nTx++;
+          var a0 = arguments[0];
+          if (api.callTapSend) safe(function () { api.callTapSend(id, a0); });
           return send.apply(s, arguments);
         };
         s.addEventListener('open', function () {
@@ -2295,7 +2298,8 @@
           connLog('ws#' + id + ' open after ' + (opened - born) + 'ms (' + pageState() + ')');
           connChanged();
         });
-        s.addEventListener('message', function () {
+        s.addEventListener('message', function (ev) {
+          if (api.callTap) safe(function () { api.callTap(id, ev.data); });
           var now = Date.now();
           if (rx && now - rx > 90000) connLog('ws#' + id + ' recv after ' + Math.round((now - rx) / 1000) + 's silence (' + pageState() + ')');
           lastMsg = rx = now; nRx++;
@@ -2362,6 +2366,10 @@
       socks = socks.filter(function (x) { return x.readyState < 2; });
       return socks.filter(function (x) { return x.readyState === 1; }).length;
     }
+    /** WebSocket của Zalo đang mở (mục 19 dùng để kéo hàng đợi cuộc gọi). */
+    api.openSockets = function () {
+      return socks.filter(function (x) { return x.readyState === 1; });
+    };
     api.wsInfo = function () {
       return JSON.stringify({ open: openCount(), lastMsgAgo: lastMsg ? Math.round((Date.now() - lastMsg) / 1000) : -1,
         lastOpenAgo: lastOpen ? Math.round((Date.now() - lastOpen) / 1000) : -1 });
@@ -3502,5 +3510,288 @@
     }
   });
 
-  api.version = 10;
+  // ------------------------------------------------------------------ 19. Sự kiện cuộc gọi từ WebSocket
+  /*
+   * Zalo Web nhận lời mời gọi đến qua chính WebSocket tin nhắn (zpw_ws) nhưng không nghe được. Đọc các khung điều khiển
+   * (601–604) để app tự xử lý cuộc gọi. Khung: [u8 version, u16 LE cmd, u8 subCmd] + JSON {encrypt, data}. Khung đầu
+   * (cmd 1, AUTHEN) mang khoá AES-GCM (base64, trường key); data mã hoá theo encrypt: 0 thô, 1 base64+zlib,
+   * 2 AES-GCM+zlib, 3 AES-GCM; khối AES-GCM = iv(16) | aad(16) | bản mã+tag. Chỉ đọc, không gửi gì lên máy chủ;
+   * khung tin nhắn (5xx) không giải mã.
+   */
+  safe(function () {
+    if (window.opener || window.top !== window || !window.crypto || !crypto.subtle) return;
+    var keys = {}, chains = {};
+    var td = new TextDecoder();
+    function isCtrl(cmd) { return cmd >= 601 && cmd <= 604; }
+    function b64bytes(s) {
+      var bin = atob(s), out = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+    function inflate(bytes) {
+      if (!window.DecompressionStream) return Promise.reject(new Error('no DecompressionStream'));
+      var kinds = bytes[0] === 0x1f && bytes[1] === 0x8b ? ['gzip', 'deflate'] : ['deflate', 'gzip'];
+      kinds.push('deflate-raw');
+      function attempt(i) {
+        if (i >= kinds.length) return Promise.reject(new Error('inflate failed'));
+        var st;
+        try { st = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(kinds[i])); } catch (e) { return attempt(i + 1); }
+        return new Response(st).arrayBuffer().then(function (b) { return new Uint8Array(b); }, function () { return attempt(i + 1); });
+      }
+      return attempt(0);
+    }
+    function gcm(key, blob) {
+      if (!key) return Promise.reject(new Error('no cipher key'));
+      if (blob.length < 48) return Promise.reject(new Error('blob too short ' + blob.length));
+      return crypto.subtle.decrypt({ name: 'AES-GCM', iv: blob.subarray(0, 16), additionalData: blob.subarray(16, 32), tagLength: 128 },
+        key, blob.subarray(32)).then(function (b) { return new Uint8Array(b); });
+    }
+    function decryptData(key, enc, data) {
+      if (enc === 0) return Promise.resolve(new TextEncoder().encode(data));
+      if (enc === 1) return inflate(b64bytes(data));
+      var raw;
+      try { raw = b64bytes(decodeURIComponent(data)); } catch (e) { raw = b64bytes(data); }
+      if (enc === 2) return gcm(key, raw).then(inflate);
+      if (enc === 3) return gcm(key, raw);
+      return Promise.reject(new Error('encrypt ' + enc));
+    }
+    function toBytes(d) {
+      if (d instanceof ArrayBuffer) return Promise.resolve(new Uint8Array(d));
+      if (ArrayBuffer.isView(d)) return Promise.resolve(new Uint8Array(d.buffer, d.byteOffset, d.byteLength));
+      if (window.Blob && d instanceof Blob) return d.arrayBuffer().then(function (b) { return new Uint8Array(b); });
+      return Promise.resolve(null); // khung chữ: Zalo không dùng
+    }
+    function report(ws, dir, cmd, sub, body) {
+      safe(function () { bridge.callEvent(dir, ws, cmd, sub, typeof body === 'string' ? body : JSON.stringify(body)); });
+    }
+    function handle(ws, bytes) {
+      if (!bytes || bytes.length < 4) return null;
+      var cmd = bytes[1] | (bytes[2] << 8), sub = bytes[3];
+      if (cmd !== 1 && !isCtrl(cmd)) return null;
+      var env;
+      try { env = JSON.parse(td.decode(bytes.subarray(4))); } catch (e) { report(ws, 'rx', cmd, sub, '{"_err":"bad json"}'); return null; }
+      if (!env || typeof env !== 'object') return null;
+      var enc = +env.encrypt || 0, p;
+      if (cmd === 1 && env.key) {
+        p = crypto.subtle.importKey('raw', b64bytes(env.key), 'AES-GCM', false, ['decrypt']).then(function (k) { keys[ws] = k; });
+      } else p = Promise.resolve();
+      return p.then(function () {
+        if (typeof env.data !== 'string') return env;
+        return decryptData(keys[ws], enc, env.data).then(function (b) {
+          var txt = td.decode(b);
+          try { return JSON.parse(txt); } catch (e) { return { _raw: txt.slice(0, 4000) }; }
+        });
+      }).then(function (body) {
+        if (cmd === 1) {
+          // Chỉ ghi danh sách hàng đợi máy chủ cho kéo (có 604 VoIP hay không), không ghi phần còn lại của phiên.
+          var d = (body && body.data) || body || {};
+          report(ws, 'rx', 1, sub, { error_code: body && body.error_code, ctrl_qCmds: d.ctrl_qCmds, qCmds: d.qCmds, encrypt: enc });
+        } else report(ws, 'rx', cmd, sub, body);
+      }, function (e) { report(ws, 'rx', cmd, sub, { _err: String(e && e.message || e), encrypt: enc }); });
+    }
+    api.callTap = function (ws, data) {
+      // Giữ thứ tự theo từng socket: khoá AUTHEN phải có trước khi giải mã các khung sau.
+      chains[ws] = (chains[ws] || Promise.resolve()).then(function () { return toBytes(data); })
+        .then(function (b) { return handle(ws, b); }).catch(function (e) { log('callTap: ' + e); });
+    };
+    api.callTapSend = function (ws, data) {
+      // Lệnh kéo hàng đợi điều khiển của trang là JSON thô: ghi lại để biết trang có kéo 604 không.
+      toBytes(data).then(function (b) {
+        if (!b || b.length < 4) return;
+        var cmd = b[1] | (b[2] << 8), sub = b[3];
+        if (!isCtrl(cmd)) return;
+        report(ws, 'tx', cmd, sub, td.decode(b.subarray(4)).slice(0, 1000));
+      }).catch(function () { /* ignore */ });
+    };
+
+    /*
+     * Báo hiệu cuộc gọi (app gọi qua evaluateJavascript): dùng chính các hàm của Zalo Web (module chứa requestCall,
+     * sendRequestCall...), nên khoá phiên, imei và tham số chung do trang tự lo, app không cần giữ khoá. Kết quả trả về
+     * qua bridge.callSigResult(reqId, ok, json). Module webpack tìm theo tên hàm, không theo mã module (đổi mỗi bản).
+     */
+    var sigApi = null, aesApi = null;
+    function wreq() {
+      if (window.__zdWr) return window.__zdWr;
+      if (!window.webpackJsonp) return null;
+      var id = 'zdcall' + Date.now();
+      var mods = {};
+      mods[id] = function (m, e, r) { window.__zdWr = r; };
+      window.webpackJsonp.push([[id], mods, [[id]]]);
+      return window.__zdWr || null;
+    }
+    function findApis() {
+      if (sigApi) return true;
+      var r = wreq();
+      if (!r || !r.c) return false;
+      var ids = Object.keys(r.c);
+      for (var i = 0; i < ids.length && !(sigApi && aesApi); i++) {
+        var ex; try { ex = r.c[ids[i]].exports; } catch (e) { continue; }
+        if (!ex) continue;
+        var d = ex['default'] || ex;
+        if (!d || (typeof d !== 'function' && typeof d !== 'object')) continue;
+        try {
+          if (!sigApi && typeof d.requestCall === 'function' && typeof d.sendRequestCall === 'function') sigApi = d;
+          if (!aesApi && typeof d.encodeAES === 'function' && typeof d.decodeAES === 'function' && typeof d.getSecretKey === 'function') aesApi = d;
+        } catch (e) { /* ignore */ }
+      }
+      return !!sigApi;
+    }
+    function unwrap(res) {
+      var body = res && res.data !== undefined ? res.data : res;
+      if (body && typeof body === 'object' && typeof body.data === 'string' && aesApi) {
+        var s = body.data, parsed = null;
+        try { parsed = JSON.parse(s); } catch (e) {
+          try { parsed = JSON.parse(aesApi.decodeAES(s)); } catch (e2) { /* để nguyên */ }
+        }
+        if (parsed !== null) body = Object.assign({}, body, { data: parsed });
+      }
+      if (body && typeof body === 'object') { try { delete body.__zdelayData; } catch (e) { /* ignore */ } }
+      return body;
+    }
+    var SIG_OPS = { requestCall: 1, sendRequestCall: 1, sendRingRingCall: 1, sendAnswerCall: 1, sendAnswerACKCall: 1,
+      sendCancelCall: 1, sendEndCall: 1, sendLogEndCall: 1, sendOnOffCamMic: 1,
+      requestCallGroup: 1, sendRequestCallGroup: 1, sendCancelCallGroup: 1, sendEndCallGroup: 1, sendCallGroupFinish: 1 };
+    // sendRingRingCall (407) và sendAnswerCall (402) đã có ở trên: dùng cho cuộc gọi đến.
+    api.callSig = function (reqId, op, argsJson) {
+      function done(ok, v) {
+        var s; try { s = JSON.stringify(v); } catch (e) { s = '{"_err":"stringify"}'; }
+        safe(function () { bridge.callSigResult(String(reqId), !!ok, s); });
+      }
+      try {
+        if (op === 'upgradeSession') return upgradeSession(done);
+        if (!SIG_OPS[op]) return done(false, { _err: 'op ' + op });
+        if (!findApis()) return done(false, { _err: 'zalo call api not found' });
+        var args = JSON.parse(argsJson || '[]');
+        Promise.resolve(sigApi[op].apply(sigApi, args)).then(function (res) { done(true, unwrap(res)); },
+          function (e) { done(false, { _err: String(e && (e.message || e.code) || e), status: e && e.status }); });
+      } catch (e) { done(false, { _err: String(e && e.message || e) }); }
+    };
+    /*
+     * Nhận cuộc gọi đến: máy chủ chỉ đẩy lời mời (act "request") cho phiên kiểu Zalo PC. Gọi lại getLoginInfo của chính
+     * trang với type 24 / client_version 665 (như ctdozlite upgrade_session_for_group_call) rồi trả cấu hình về 30 ngay;
+     * các yêu cầu khác của trang vẫn là Zalo Web. Kết quả: {error_code, haspcclient}. Không trả khoá phiên ra ngoài.
+     */
+    var cfgApi = null;
+    function upgradeSession(done) {
+      if (!findApis() || typeof sigApi.getLoginInfo !== 'function') return done(false, { _err: 'getLoginInfo not found' });
+      if (!cfgApi) {
+        var r = wreq(), ids = r && r.c ? Object.keys(r.c) : [];
+        for (var i = 0; i < ids.length && !cfgApi; i++) {
+          try {
+            var d = r.c[ids[i]].exports && r.c[ids[i]].exports['default'];
+            if (d && typeof d === 'object' && 'apiType' in d && 'apiVersion' in d && 'apiVoiceCallDomain' in d) cfgApi = d;
+          } catch (e) { /* ignore */ }
+        }
+      }
+      if (!cfgApi) return done(false, { _err: 'config not found' });
+      var oldT = cfgApi.apiType, oldV = cfgApi.apiVersion;
+      cfgApi.apiType = 24;
+      cfgApi.apiVersion = 665;
+      var p;
+      try { p = sigApi.getLoginInfo(localStorage.getItem('z_uuid'), 'vi'); } finally {
+        cfgApi.apiType = oldT;
+        cfgApi.apiVersion = oldV;
+      }
+      Promise.resolve(p).then(function (res) {
+        var d = res && res.data, inner = d && d.data;
+        done(true, { error_code: d ? d.error_code : -1, error_message: d && d.error_message,
+          haspcclient: inner && typeof inner === 'object' ? inner.haspcclient : undefined });
+      }, function (e) { done(false, { _err: String(e && (e.message || e.code) || e) }); });
+    }
+
+    /** Gọi đi bằng app (thay cho Zalo Web không gọi được). uid: mã người dùng Zalo (id hội thoại 1-1). */
+    api.startCall = function (uid, name, avatar, video) {
+      bridge.startCall(String(uid), String(name || ''), String(avatar || ''), !!video);
+    };
+
+    /* Hội thoại đang mở: props "conversation" (React) của khung tin nhắn — userId, tên, ảnh, nhóm hay không. */
+    function openConversation() {
+      var sc = document.getElementById('messageViewScroll');
+      var fk = sc && Object.keys(sc).filter(function (k) { return k.indexOf('__react') === 0; })[0];
+      for (var f = fk && sc[fk], i = 0; f && i < 40; f = f.return, i++) {
+        var p = f.memoizedProps;
+        if (p && p.conversation && p.conversation.userId) return p.conversation;
+      }
+      return null;
+    }
+    function isGroupConv(c) { return !!(c && (c.isGroup || /^g\d/.test(String(c.userId)))); }
+    function callable(c) {
+      // 1-1 với người dùng thật hoặc nhóm: không phải Official Account, "Cloud của tôi" (send2me).
+      if (!c || c.oaInfo || /send2me|sendtome/i.test(String(c.userId))) return false;
+      return isGroupConv(c) || String(c.userId).length > 6;
+    }
+    function meUid() {
+      var r = wreq(), ids = r && r.c ? Object.keys(r.c) : [];
+      for (var i = 0; i < ids.length; i++) {
+        try {
+          var d = r.c[ids[i]].exports && r.c[ids[i]].exports['default'];
+          if (d && typeof d.getUidMe === 'function') return String(d.getUidMe() || '');
+        } catch (e) { /* ignore */ }
+      }
+      return '';
+    }
+    function callOpen(from, video) {
+      var c = openConversation();
+      if (!callable(c)) { log('call: conversation not callable (' + from + ')'); return false; }
+      if (isGroupConv(c)) {
+        // Gọi nhóm (chỉ thoại): mã nhóm bỏ tiền tố "g"; danh sách thành viên trừ mình.
+        var me = meUid(), mem = [];
+        (c.memberIds || []).forEach(function (m) {
+          var id = String(m).split('_')[0];
+          if (id && id !== me && mem.indexOf(id) < 0) mem.push(id);
+        });
+        if (!mem.length && c.topMember) c.topMember.forEach(function (m) {
+          var id = String(m && (m.id || m.userId) || '');
+          if (id && id !== me && mem.indexOf(id) < 0) mem.push(id);
+        });
+        bridge.startGroupCall(String(c.userId).replace(/^g/, ''), c.displayName || '', c.avatar || '', JSON.stringify(mem), me);
+        return true;
+      }
+      api.startCall(c.userId, c.displayName || c.zaloName || '', c.avatar || '', !!video);
+      return true;
+    }
+
+    // Nút gọi thoại / gọi video trên thanh trên của khung chat (Zalo Web không có), đặt trước ô tìm tin nhắn.
+    function headerButton(cls, icon, title, video) {
+      var b = document.createElement('div');
+      b.className = 'z--btn--v2 btn-tertiary-neutral medium --rounded icon-only zd-call-btn ' + cls;
+      b.setAttribute('title', title);
+      b.setAttribute('role', 'button');
+      b.innerHTML = '<i class="fa ' + icon + ' pre"></i>';
+      b.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); callOpen('header', video); }, true);
+      return b;
+    }
+    setInterval(function () {
+      safe(function () {
+        var inChat = document.documentElement.classList.contains('zd-chat') || !!document.getElementById('messageViewScroll');
+        var old = document.querySelectorAll('.zd-call-btn');
+        if (!inChat) { old.forEach(function (x) { x.remove(); }); return; }
+        var conv = openConversation(), ok = callable(conv), grp = isGroupConv(conv);
+        if (old.length) {
+          old.forEach(function (x) {
+            // Nhóm: chỉ gọi thoại (chưa hỗ trợ video nhóm).
+            x.style.display = ok && !(grp && x.classList.contains('zd-call-video')) ? '' : 'none';
+          });
+          return;
+        }
+        if (!ok) return;
+        var icon = document.querySelector('.search-message-entry__icon');
+        var anchor = icon && icon.closest('.rel');
+        if (!anchor || !anchor.parentElement) return;
+        anchor.parentElement.insertBefore(headerButton('zd-call-voice', 'fa-outline-call', 'Gọi thoại', false), anchor);
+        anchor.parentElement.insertBefore(headerButton('zd-call-video', 'fa-outline-video', 'Gọi video', true), anchor);
+      });
+    }, 700);
+
+    // "Gọi lại" trong tin nhắn cuộc gọi: Zalo Web chỉ báo "hãy dùng app" — gọi bằng ZaloDuo (video nếu là cuộc gọi video).
+    document.addEventListener('click', function (e) {
+      var t = e.target && e.target.closest && e.target.closest('.call-message__callback-wrapper');
+      if (!t) return;
+      var msg = t.closest('.call-message');
+      var video = !!(msg && /video/i.test(msg.textContent || ''));
+      if (callOpen('callback', video)) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
+  });
+
+  api.version = 11;
 })();

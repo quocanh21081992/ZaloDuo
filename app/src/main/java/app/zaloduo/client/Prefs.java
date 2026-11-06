@@ -43,6 +43,10 @@ final class Prefs {
     /** Zalo Web không nghe gọi được: báo cuộc gọi đến (đổ chuông, toàn màn hình) đã bỏ. */
     static boolean callAlerts(Context c) { return false; }
 
+    static final String INCOMING_CALLS = "incoming_calls";
+    /** Nhận cuộc gọi đến bằng app: nâng phiên lên kiểu Zalo PC để máy chủ gửi lời mời (CallManager). */
+    static boolean incomingCalls(Context c) { return bool(c, INCOMING_CALLS, true); }
+
     static final String DOCK_CLOUD = "dock_cloud", DOCK_TOOLS = "dock_tools";
     /** Nút zCloud / Công cụ của Zalo ở bên phải thanh dock (sau My Documents). */
     static boolean dockCloud(Context c) { return bool(c, DOCK_CLOUD, false); }

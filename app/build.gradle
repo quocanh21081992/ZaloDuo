@@ -10,8 +10,8 @@ android {
         applicationId = 'app.zaloduo.client'
         minSdk = 26
         targetSdk = 35
-        versionCode = 17
-        versionName = '2.6'
+        versionCode = 18
+        versionName = '3.0-beta1'
     }
 
     // Khóa ký cố định: mọi bản build (máy bạn hay GitHub Actions) đều cùng chữ ký, nên cài bản mới đè lên bản cũ được
@@ -57,4 +57,6 @@ android {
 
 dependencies {
     implementation 'androidx.webkit:webkit:1.12.1'
+    // Opus thuần Java (port libopus 1.1.2) cho cuộc gọi trên Android 8–9: MediaCodec chỉ có bộ mã hoá Opus từ Android 10.
+    implementation 'io.github.jaredmdobson:concentus:1.0.2'
 }

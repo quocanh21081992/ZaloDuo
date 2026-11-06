@@ -211,7 +211,10 @@ final class JsBridge {
     public void pageReady(String t) {
         if (!ok(t) || owner.popup) return;
         App.MAIN.post(() -> {
-            if (!WebViewHolder.pageReady) DiagLog.add("chat list shown");
+            if (!WebViewHolder.pageReady) {
+                DiagLog.add("chat list shown");
+                CallManager.get().onPageLoaded(); // trang mới tải: getLoginInfo của trang đưa phiên về kiểu Web
+            }
             WebViewHolder.pageReady = true;
             MainActivity a = WebViewHolder.host();
             if (a != null) a.hideSnapshot();
@@ -257,6 +260,35 @@ final class JsBridge {
     public void connLog(String t, String event) {
         if (!ok(t) || owner.popup || event == null) return;
         DiagLog.conn("web: " + (event.length() > 240 ? event.substring(0, 240) : event));
+    }
+
+    /** Khung điều khiển cuộc gọi đã giải mã từ WebSocket của Zalo (shim mục 19). */
+    @JavascriptInterface
+    public void callEvent(String t, String dir, int ws, int cmd, int sub, String body) {
+        if (!ok(t) || owner.popup || body == null) return;
+        CallEvents.onFrame(dir, ws, cmd, sub, body.length() > 20000 ? body.substring(0, 20000) : body);
+    }
+
+    /** Kết quả báo hiệu cuộc gọi (window.__zw.callSig). */
+    @JavascriptInterface
+    public void callSigResult(String t, String reqId, boolean ok, String json) {
+        if (!ok(t) || owner.popup || reqId == null) return;
+        CallSignal.onResult(reqId, ok, json == null ? "{}" : json);
+    }
+
+    /** Người dùng bấm gọi trong trang (shim): mở màn hình cuộc gọi và quay số. */
+    @JavascriptInterface
+    public void startCall(String t, final String uid, final String name, final String avatar, final boolean video) {
+        if (!ok(t) || owner.popup || uid == null || uid.isEmpty()) return;
+        App.MAIN.post(() -> CallActivity.dial(app, uid, name, avatar, video));
+    }
+
+    /** Người dùng bấm gọi trong nhóm (shim): gọi thoại nhóm. members: JSON mảng uid thành viên (trừ mình). */
+    @JavascriptInterface
+    public void startGroupCall(String t, final String gid, final String name, final String avatar, final String members,
+                               final String me) {
+        if (!ok(t) || owner.popup || gid == null || gid.isEmpty()) return;
+        App.MAIN.post(() -> CallActivity.dialGroup(app, gid, name, avatar, members));
     }
 
     @JavascriptInterface

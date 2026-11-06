@@ -94,6 +94,10 @@ public class SettingsActivity extends Activity {
         if (isHuawei()) button("Huawei: cho phép chạy nền (Quản lý khởi chạy)", this::openHuaweiLaunchManager);
         button("Cài đặt thông báo của app", this::openNotificationSettings);
 
+        header("Cuộc gọi");
+        toggle("Nhận cuộc gọi đến (thử nghiệm: báo với máy chủ Zalo app là Zalo PC — có thể làm thoát Zalo PC khác của tài khoản này)",
+                Prefs.INCOMING_CALLS, true, on -> { if (on) CallManager.get().onPageLoaded(); });
+
         header("Hiển thị");
         toggle("Giao diện điện thoại (danh sách chat → chạm để mở chat)", Prefs.MOBILE_UI, true,
                 on -> WebViewHolder.applySettings(true));

@@ -26,6 +26,14 @@ import android.util.Log;
 public class KeepAliveService extends Service {
     static final int NOTIF_ID = 1;
     static final String ACTION_SPEAKER = "app.zaloduo.client.SPEAKER";
+    static final String ACTION_HANGUP = "app.zaloduo.client.HANGUP";
+    static final String ACTION_ANSWER = "app.zaloduo.client.ANSWER";
+
+    /** Cuộc gọi của app đổi trạng thái / màn hình cuộc gọi ẩn-hiện: dựng lại thông báo. Gọi trên luồng chính. */
+    static void refreshNotification() {
+        KeepAliveService s = instance;
+        if (s != null) s.goForeground();
+    }
 
     // Chỉ truy cập trên luồng chính.
     private static KeepAliveService instance;
@@ -46,6 +54,10 @@ public class KeepAliveService extends Service {
 
     static void stop(Context c) {
         c.stopService(new Intent(c, KeepAliveService.class));
+    }
+
+    static boolean isSpeakerOn() {
+        return speakerOn;
     }
 
     static boolean isMediaActive() {
@@ -127,6 +139,8 @@ public class KeepAliveService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         goForeground();
         if (intent != null && ACTION_SPEAKER.equals(intent.getAction())) setSpeaker(this, !speakerOn);
+        if (intent != null && ACTION_HANGUP.equals(intent.getAction())) CallManager.get().hangup(null);
+        if (intent != null && ACTION_ANSWER.equals(intent.getAction())) CallActivity.answerFromNotification(this);
         if (intent != null && ACTION_CHECK.equals(intent.getAction())) check();
         else scheduleCheck(this, CHECK_ON_MS);
         return START_STICKY;
@@ -206,8 +220,11 @@ public class KeepAliveService extends Service {
     }
 
     private Notification buildNotification() {
+        if (CallManager.get().busy() && Build.VERSION.SDK_INT >= 31) return CallNotify.build(this);
+        // Đang gọi bằng app (CallManager): bấm thông báo mở lại màn hình cuộc gọi.
+        Class<?> target = CallManager.get().busy() ? CallActivity.class : MainActivity.class;
         PendingIntent open = PendingIntent.getActivity(this, 100,
-                new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                new Intent(this, target).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         PendingIntent settings = PendingIntent.getActivity(this, 101,
                 new Intent(this, SettingsActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
@@ -375,6 +392,7 @@ public class KeepAliveService extends Service {
             s.goForeground();
             s.updateProximity();
         }
+        if (changed) CallManager.get().refresh(); // nút Loa trên màn hình cuộc gọi
     }
 
     /** Gọi thoại (không video, không loa ngoài): áp tai vào thì tắt màn hình như app gọi thật. */
