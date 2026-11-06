@@ -35,7 +35,7 @@ import java.util.Locale;
  */
 public class CallActivity extends Activity implements CallManager.Listener {
     private static final String EXTRA_UID = "uid", EXTRA_NAME = "name", EXTRA_AVATAR = "avatar", EXTRA_VIDEO = "video",
-            EXTRA_GROUP = "group", EXTRA_MEMBERS = "members";
+            EXTRA_GROUP = "group", EXTRA_MEMBERS = "members", EXTRA_TOTAL = "total";
     private String pendingGroup, pendingMembers;
     private static final int REQ_MIC = 41;
     private static final int RED = 0xFFE5534B;
@@ -88,13 +88,26 @@ public class CallActivity extends Activity implements CallManager.Listener {
     }
 
     /** Gọi thoại nhóm (gọi từ luồng chính). */
-    static void dialGroup(Context c, String gid, String name, String avatarUrl, String members) {
+    static void dialGroup(Context c, String gid, String name, String avatarUrl, String members, int total) {
         Intent i = new Intent(c, CallActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         if (!CallManager.get().busy()) {
             i.putExtra(EXTRA_UID, "g" + gid).putExtra(EXTRA_NAME, name).putExtra(EXTRA_AVATAR, avatarUrl)
-                    .putExtra(EXTRA_GROUP, gid).putExtra(EXTRA_MEMBERS, members);
+                    .putExtra(EXTRA_GROUP, gid).putExtra(EXTRA_MEMBERS, members).putExtra(EXTRA_TOTAL, total);
         }
         c.startActivity(i);
+    }
+
+    /** Gọi nhóm làm máy mọi thành viên đổ chuông: hỏi lại trước (nhóm đông người lỡ tay là phiền cả nhóm). */
+    private void confirmGroupThen(Runnable go) {
+        int total = getIntent().getIntExtra(EXTRA_TOTAL, 0);
+        String who = total > 1 ? (total - 1) + " thành viên khác" : "các thành viên";
+        new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Gọi nhóm " + (pendingName == null ? "" : pendingName) + "?")
+                .setMessage("Máy của " + who + " trong nhóm sẽ đổ chuông.")
+                .setPositiveButton("Gọi", (d, w) -> go.run())
+                .setNegativeButton("Huỷ", (d, w) -> finish())
+                .setOnCancelListener(d -> finish())
+                .show();
     }
 
     /** Mở màn hình cuộc gọi và gọi đi (gọi từ luồng chính). */
@@ -145,9 +158,15 @@ public class CallActivity extends Activity implements CallManager.Listener {
     private void startPending() {
         if (pendingUid == null) return;
         String uid = pendingUid;
+        if (pendingGroup != null) {
+            confirmGroupThen(() -> {
+                pendingUid = null;
+                CallManager.get().startGroup(this, pendingGroup, pendingName, pendingAvatar, pendingMembers);
+            });
+            return;
+        }
         pendingUid = null;
-        if (pendingGroup != null) CallManager.get().startGroup(this, pendingGroup, pendingName, pendingAvatar, pendingMembers);
-        else CallManager.get().startOutgoing(this, uid, pendingName, pendingAvatar, pendingVideo);
+        CallManager.get().startOutgoing(this, uid, pendingName, pendingAvatar, pendingVideo);
     }
 
     @Override

@@ -286,9 +286,12 @@ final class JsBridge {
     /** Người dùng bấm gọi trong nhóm (shim): gọi thoại nhóm. members: JSON mảng uid thành viên (trừ mình). */
     @JavascriptInterface
     public void startGroupCall(String t, final String gid, final String name, final String avatar, final String members,
-                               final String me) {
+                               final String total) {
         if (!ok(t) || owner.popup || gid == null || gid.isEmpty()) return;
-        App.MAIN.post(() -> CallActivity.dialGroup(app, gid, name, avatar, members));
+        int n;
+        try { n = Integer.parseInt(total); } catch (Exception e) { n = 0; }
+        final int count = n;
+        App.MAIN.post(() -> CallActivity.dialGroup(app, gid, name, avatar, members, count));
     }
 
     @JavascriptInterface

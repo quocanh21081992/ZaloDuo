@@ -618,7 +618,11 @@ final class CallManager {
         App.MAIN.post(() -> {
             try {
                 stopRinging();
-                android.net.Uri uri = android.media.RingtoneManager.getActualDefaultRingtoneUri(app, android.media.RingtoneManager.TYPE_RINGTONE);
+                // Cài đặt → Cuộc gọi → Nhạc chuông (null = im lặng: chỉ rung theo kênh thông báo cuộc gọi đến).
+                android.net.Uri uri = Prefs.ringtone(app);
+                if (uri != null && android.provider.Settings.System.DEFAULT_RINGTONE_URI.equals(uri)) {
+                    uri = android.media.RingtoneManager.getActualDefaultRingtoneUri(app, android.media.RingtoneManager.TYPE_RINGTONE);
+                }
                 if (uri == null) return;
                 ringtone = android.media.RingtoneManager.getRingtone(app, uri);
                 if (ringtone == null) return;

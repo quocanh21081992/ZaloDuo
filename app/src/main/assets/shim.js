@@ -3744,7 +3744,8 @@
           var id = String(m && (m.id || m.userId) || '');
           if (id && id !== me && mem.indexOf(id) < 0) mem.push(id);
         });
-        bridge.startGroupCall(String(c.userId).replace(/^g/, ''), c.displayName || '', c.avatar || '', JSON.stringify(mem), me);
+        var total = +c.totalMember || mem.length + 1;
+        bridge.startGroupCall(String(c.userId).replace(/^g/, ''), c.displayName || '', c.avatar || '', JSON.stringify(mem), String(total));
         return true;
       }
       api.startCall(c.userId, c.displayName || c.zaloName || '', c.avatar || '', !!video);
@@ -3752,9 +3753,12 @@
     }
 
     // Nút gọi thoại / gọi video trên thanh trên của khung chat (Zalo Web không có), đặt trước ô tìm tin nhắn.
+    // Icon video: fa-icon-outline-video (fa-outline-video của Zalo có chữ "BETA" bên dưới nên lệch hàng).
     function headerButton(cls, icon, title, video) {
       var b = document.createElement('div');
       b.className = 'z--btn--v2 btn-tertiary-neutral medium --rounded icon-only zd-call-btn ' + cls;
+      // Các nút sẵn có của Zalo nằm trong khung .rel.margin-right-4: cách nhau 4px. Giữ đúng khoảng đó cho thẳng hàng.
+      b.style.marginRight = '4px';
       b.setAttribute('title', title);
       b.setAttribute('role', 'button');
       b.innerHTML = '<i class="fa ' + icon + ' pre"></i>';
@@ -3779,7 +3783,7 @@
         var anchor = icon && icon.closest('.rel');
         if (!anchor || !anchor.parentElement) return;
         anchor.parentElement.insertBefore(headerButton('zd-call-voice', 'fa-outline-call', 'Gọi thoại', false), anchor);
-        anchor.parentElement.insertBefore(headerButton('zd-call-video', 'fa-outline-video', 'Gọi video', true), anchor);
+        anchor.parentElement.insertBefore(headerButton('zd-call-video', 'fa-icon-outline-video', 'Gọi video', true), anchor);
       });
     }, 700);
 

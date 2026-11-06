@@ -97,6 +97,7 @@ public class SettingsActivity extends Activity {
         header("Cuộc gọi");
         toggle("Nhận cuộc gọi đến (thử nghiệm: báo với máy chủ Zalo app là Zalo PC — có thể làm thoát Zalo PC khác của tài khoản này)",
                 Prefs.INCOMING_CALLS, true, on -> { if (on) CallManager.get().onPageLoaded(); });
+        ringtoneButton = button(ringtoneLabel(), this::pickRingtone);
 
         header("Hiển thị");
         toggle("Giao diện điện thoại (danh sách chat → chạm để mở chat)", Prefs.MOBILE_UI, true,
@@ -409,7 +410,50 @@ public class SettingsActivity extends Activity {
         });
     }
 
-    private void button(String label, final Runnable action) {
+    // ------------------------------------------------------------------ nhạc chuông cuộc gọi đến
+
+    private static final int REQ_RINGTONE = 77;
+    private Button ringtoneButton;
+
+    private String ringtoneLabel() {
+        android.net.Uri u = Prefs.ringtone(this);
+        String name;
+        if (u == null) name = "Im lặng (chỉ rung)";
+        else if (!Prefs.hasCustomRingtone(this)) name = "Mặc định của máy";
+        else {
+            android.media.Ringtone r = android.media.RingtoneManager.getRingtone(this, u);
+            name = r != null ? r.getTitle(this) : u.getLastPathSegment();
+        }
+        return "Nhạc chuông cuộc gọi đến: " + name;
+    }
+
+    private void pickRingtone() {
+        android.net.Uri cur = Prefs.ringtone(this);
+        android.content.Intent i = new android.content.Intent(android.media.RingtoneManager.ACTION_RINGTONE_PICKER)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TYPE, android.media.RingtoneManager.TYPE_RINGTONE)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TITLE, "Nhạc chuông cuộc gọi đến")
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI, android.provider.Settings.System.DEFAULT_RINGTONE_URI)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_EXISTING_URI,
+                        Prefs.hasCustomRingtone(this) ? cur : android.provider.Settings.System.DEFAULT_RINGTONE_URI);
+        try {
+            startActivityForResult(i, REQ_RINGTONE);
+        } catch (android.content.ActivityNotFoundException e) {
+            android.widget.Toast.makeText(this, "Máy không có trình chọn nhạc chuông", android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, android.content.Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req != REQ_RINGTONE || res != RESULT_OK || data == null) return;
+        android.net.Uri u = data.getParcelableExtra(android.media.RingtoneManager.EXTRA_RINGTONE_PICKED_URI);
+        Prefs.setRingtone(this, u);
+        if (ringtoneButton != null) ringtoneButton.setText(ringtoneLabel());
+    }
+
+    private Button button(String label, final Runnable action) {
         Button b = new Button(this);
         b.setText(label);
         b.setAllCaps(false);
@@ -418,6 +462,7 @@ public class SettingsActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = dp(4);
         list.addView(b, lp);
+        return b;
     }
 
     private void note(String text) {

@@ -47,6 +47,26 @@ final class Prefs {
     /** Nhận cuộc gọi đến bằng app: nâng phiên lên kiểu Zalo PC để máy chủ gửi lời mời (CallManager). */
     static boolean incomingCalls(Context c) { return bool(c, INCOMING_CALLS, true); }
 
+    static final String RINGTONE = "call_ringtone";
+
+    /** Nhạc chuông cuộc gọi đến: chưa chọn = nhạc chuông mặc định của máy; chọn "Im lặng" = null (chỉ rung). */
+    static android.net.Uri ringtone(Context c) {
+        String s = sp(c).getString(RINGTONE, null);
+        if (s == null) return android.provider.Settings.System.DEFAULT_RINGTONE_URI;
+        return s.isEmpty() ? null : android.net.Uri.parse(s);
+    }
+
+    static boolean hasCustomRingtone(Context c) {
+        String s = sp(c).getString(RINGTONE, null);
+        return s != null && !s.isEmpty() && !android.provider.Settings.System.DEFAULT_RINGTONE_URI.toString().equals(s);
+    }
+
+    /** null = im lặng; Uri mặc định của hệ thống = theo máy. */
+    static void setRingtone(Context c, android.net.Uri u) {
+        if (u != null && android.provider.Settings.System.DEFAULT_RINGTONE_URI.equals(u)) sp(c).edit().remove(RINGTONE).apply();
+        else sp(c).edit().putString(RINGTONE, u == null ? "" : u.toString()).apply();
+    }
+
     static final String DOCK_CLOUD = "dock_cloud", DOCK_TOOLS = "dock_tools";
     /** Nút zCloud / Công cụ của Zalo ở bên phải thanh dock (sau My Documents). */
     static boolean dockCloud(Context c) { return bool(c, DOCK_CLOUD, false); }
