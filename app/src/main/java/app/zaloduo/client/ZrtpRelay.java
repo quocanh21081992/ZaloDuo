@@ -95,6 +95,10 @@ final class ZrtpRelay {
     boolean start(long waitMs) throws SocketException {
         rtpSock = new DatagramSocket();
         rtcpSock = new DatagramSocket();
+        // Khung khoá video tới thành từng loạt hàng chục gói: bộ đệm nhận mặc định (~100–200 KB) tràn là mất gói -> hình
+        // nhoè / phải xin lại khung khoá. Xin 4 MB (hệ thống tự giới hạn theo rmem_max).
+        try { rtpSock.setReceiveBufferSize(4 << 20); } catch (Exception ignored) { }
+        CallEvents.log("rtp rcvbuf=" + rtpSock.getReceiveBufferSize());
         running = true;
         startReceiver(rtpSock, "rtp");
         startReceiver(rtcpSock, "rtcp");

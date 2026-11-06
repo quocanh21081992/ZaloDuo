@@ -273,7 +273,7 @@ public class CallActivity extends Activity implements CallManager.Listener {
                 new Intent(this, KeepAliveService.class).setAction(KeepAliveService.ACTION_MIC),
                 android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT);
         acts.add(new android.app.RemoteAction(android.graphics.drawable.Icon.createWithResource(this,
-                muted ? R.drawable.zd_ic_muted : R.drawable.zd_ic_mic),
+                muted ? R.drawable.zd_ic_mic_off : R.drawable.zd_ic_mic),
                 muted ? "Bật mic" : "Tắt mic", muted ? "Bật micro" : "Tắt micro", mic));
         android.app.PendingIntent end = android.app.PendingIntent.getService(this, 121,
                 new Intent(this, KeepAliveService.class).setAction(KeepAliveService.ACTION_HANGUP),
@@ -329,7 +329,7 @@ public class CallActivity extends Activity implements CallManager.Listener {
 
     private boolean cropBeforePip;
     private View uiRoot;
-    private boolean localPlaced;
+    private boolean localPlaced, localMirror;
     private int insetTop, insetBottom;
 
     /** Đặt ô hình của mình ở (x, y), giữ trọn trong màn hình (không lấn thanh trạng thái / điều hướng). */
@@ -428,7 +428,7 @@ public class CallActivity extends Activity implements CallManager.Listener {
         normalRow.setVisibility(ringing ? View.GONE : View.VISIBLE);
         setToggle(speakerBtn, speakerIcon, m.speaker());
         setToggle(micBtn, micIcon, m.muted());
-        micIcon.setImageResource(m.muted() ? R.drawable.zd_ic_muted : R.drawable.zd_ic_mic);
+        micIcon.setImageResource(m.muted() ? R.drawable.zd_ic_mic_off : R.drawable.zd_ic_mic);
         if (inPip && pipMuted != m.muted()) { pipMuted = m.muted(); refreshPip(); } // đổi biểu tượng mic trên cửa sổ nổi
         CallVideo v = m.video();
         if (camBtn != null) {
@@ -573,7 +573,7 @@ public class CallActivity extends Activity implements CallManager.Listener {
             });
             localView.setClipToOutline(true);
             // Ô hình của mình: kéo đi đâu cũng được (giữ trong màn hình), mặc định góc trên bên phải dưới thanh trên;
-            // chạm (không kéo) thì đổi camera.
+            // chạm (không kéo) thì lật hình (soi gương); đổi camera bằng nút góc trên phải.
             frame.addView(localView, new FrameLayout.LayoutParams(dp(108), dp(144), Gravity.TOP | Gravity.START));
             int slop = android.view.ViewConfiguration.get(this).getScaledTouchSlop();
             localView.setOnTouchListener(new View.OnTouchListener() {
@@ -591,7 +591,10 @@ public class CallActivity extends Activity implements CallManager.Listener {
                             return true;
                         }
                         case android.view.MotionEvent.ACTION_UP:
-                            if (!moved) { CallVideo cv = CallManager.get().video(); if (cv != null) cv.switchCamera(); }
+                            if (!moved) { // chạm: lật hình của mình (soi gương) — chỉ đổi cách hiện trên máy mình
+                                localMirror = !localMirror;
+                                v.setScaleX(localMirror ? -1f : 1f);
+                            }
                             return true;
                     }
                     return true;
@@ -600,7 +603,7 @@ public class CallActivity extends Activity implements CallManager.Listener {
             frame.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
                 if (!localPlaced && r - l > 0) {
                     localPlaced = true;
-                    placeLocal(r - l - dp(16) - dp(108), insetTop + dp(76)); // góc trên phải, dưới thanh trên
+                    placeLocal(r - l - dp(16) - dp(108), insetTop + dp(116)); // góc trên phải, dưới thanh trên (hộp thông số tới 5 dòng)
                 } else {
                     placeLocal(localView.getX(), localView.getY()); // khung đổi cỡ (thoát PiP…): giữ trong màn hình
                 }

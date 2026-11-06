@@ -433,7 +433,7 @@ final class CallManager {
                     v.sendFeedback(REMB_BPS);
                     if (n % 5 == 0) { // nhật ký: tốc độ / cỡ hình nhận mỗi 10 giây (xem chất lượng hình bên kia gửi)
                         long now = System.currentTimeMillis(), rv = r.rxVideoBytes;
-                        CallEvents.log("video rx " + kbps(rv - lastRv, (now - lastAt) / 1000.0) + " kbps idr=" + (v.rxIdr - lastIdr) + " size="
+                        CallEvents.log("video rx " + kbps(rv - lastRv, (now - lastAt) / 1000.0) + " kbps idr=" + (v.rxIdr - lastIdr) + " loss=" + v.rxLossPct() + "% peerLoss=" + v.txLossPct() + "% " + " size="
                                 + v.remoteSize() + " ping=" + r.pingMs);
                         lastRv = rv;
                         lastIdr = v.rxIdr;
@@ -470,6 +470,10 @@ final class CallManager {
             if (isVideo) {
                 sb.append("\nVideo  ↑").append(kbps(tv - stTV, sec)).append("  ↓").append(kbps(rv - stRV, sec)).append(" kbps");
                 CallVideo v = video;
+                if (v != null) { // mất gói hình: ↑ mình gửi (bên kia báo lại), ↓ mình nhận
+                    int up = v.txLossPct(), down = v.rxLossPct();
+                    sb.append("\nMất gói  ↑").append(up < 0 ? "—" : up + "%").append("  ↓").append(down < 0 ? "—" : down + "%");
+                }
                 if (v != null && v.remoteSize() != null) sb.append("\nHình nhận  ").append(v.remoteSize());
             }
             stText = sb.toString();

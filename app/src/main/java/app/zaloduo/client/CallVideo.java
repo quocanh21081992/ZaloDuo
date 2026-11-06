@@ -540,6 +540,13 @@ final class CallVideo {
                     rx.lastSrAt = System.currentTimeMillis();
                 }
             }
+            if ((pt == 200 || pt == 201) && (b[i] & 0x1F) > 0) { // khối báo cáo của bên kia về luồng hình mình gửi
+                int blk = i + (pt == 200 ? 28 : 8);
+                for (int k = 0; k < (b[i] & 0x1F) && blk + 24 <= end; k++, blk += 24) {
+                    int s = ((b[blk] & 0xFF) << 24) | ((b[blk + 1] & 0xFF) << 16) | ((b[blk + 2] & 0xFF) << 8) | (b[blk + 3] & 0xFF);
+                    if (s == ssrc) peerFraction = b[blk + 4] & 0xFF;
+                }
+            }
             i += (words + 1) * 4;
         }
     }
@@ -548,6 +555,7 @@ final class CallVideo {
     private static final class RxStats {
         boolean started;
         int baseSeq, maxSeq, cycles, received, expectedPrior, receivedPrior, lastSr;
+        volatile int lastFraction; // tỉ lệ mất gói (/256) của chu kỳ báo cáo gần nhất (2 giây)
         long lastSrAt;
 
         void update(int seq) {
@@ -572,6 +580,7 @@ final class CallVideo {
             receivedPrior = received;
             int lostInt = Math.max(0, expInt - rcvInt);
             int fraction = expInt <= 0 ? 0 : Math.min(255, (int) ((long) lostInt * 256 / expInt));
+            lastFraction = fraction;
             long dlsr = lastSrAt == 0 ? 0 : (System.currentTimeMillis() - lastSrAt) * 65536 / 1000;
             b.putInt(ssrc).put((byte) fraction).put((byte) (lostTotal >> 16)).putShort((short) lostTotal)
                     .putInt(extMax).putInt(0).putInt(lastSr).putInt((int) dlsr);
@@ -580,6 +589,13 @@ final class CallVideo {
 
     private final RxStats rx = new RxStats();
     private int rembLeft = 3;
+    private volatile int peerFraction = -1;
+
+    /** % gói hình mình nhận bị mất (chu kỳ 2 giây gần nhất), -1 khi chưa có. */
+    int rxLossPct() { synchronized (rx) { return rx.started ? Math.round(rx.lastFraction * 100f / 256) : -1; } }
+
+    /** % gói hình mình gửi bị mất, theo báo cáo (RR/SR) của bên kia; -1 khi bên kia chưa báo. */
+    int txLossPct() { int f = peerFraction; return f < 0 ? -1 : Math.round(f * 100f / 256); }
 
     /**
      * Phản hồi cho bên gửi hình, mỗi 2 giây: RR (mất gói, số thứ tự, LSR/DLSR) + REMB (PSFB fmt 15) mức bitrate tối đa
