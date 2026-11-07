@@ -797,7 +797,8 @@ public class CallActivity extends Activity implements CallManager.Listener {
 
         root.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
 
-        // Nút — thoại: Loa / Mic / Kết thúc / Ghi âm / Video; video: Loa / Camera / Kết thúc / Mic / Ghi âm (nút đỏ ở giữa).
+        // Nút — thoại: Loa / Video / Kết thúc / Mic / Ghi âm; video: Loa / Camera / Kết thúc / Mic / Ghi âm (nút đỏ ở giữa,
+        // nút Video của gọi thoại đúng chỗ nút Camera của gọi video).
         btnSize = 56;
         builtVideo = videoMode;
         LinearLayout row = new LinearLayout(this);
@@ -817,22 +818,7 @@ public class CallActivity extends Activity implements CallManager.Listener {
                 CallManager.get().setCameraOn(!cv.cameraOn());
                 localView.setAlpha(cv.cameraOn() ? 1f : 0f);
             });
-            roundButton(row, new ImageView(this), R.drawable.zd_ic_call_end, RED, "Kết thúc", endClick); // ở giữa hàng
-        }
-        micIcon = new ImageView(this);
-        micBtn = roundButton(row, micIcon, R.drawable.zd_ic_mic, btnBg, "Mic",
-                v -> CallManager.get().setMuted(!CallManager.get().muted()));
-        if (!videoMode) roundButton(row, new ImageView(this), R.drawable.zd_ic_call_end, RED, "Kết thúc", endClick);
-        recIcon = new ImageView(this);
-        recBtn = roundButton(row, recIcon, R.drawable.zd_ic_record, btnBg, "Ghi âm", v -> {
-            if (CallManager.get().state() != CallManager.State.CONNECTED) {
-                Toast.makeText(this, "Ghi âm được khi đã nối máy", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            CallManager.get().toggleRecording();
-        });
-        recLabel = (TextView) ((LinearLayout) recBtn.getParent()).getChildAt(1);
-        if (!videoMode) { // mời chuyển sang gọi video: chỉ bấm được khi đã nối máy (gọi 1-1)
+        } else { // mời chuyển sang gọi video: chỉ bấm được khi đã nối máy (gọi 1-1)
             videoReqBtn = roundButton(row, new ImageView(this), R.drawable.zd_ic_video, btnBg, "Video", v -> {
                 CallManager m = CallManager.get();
                 if (m.state() != CallManager.State.CONNECTED || m.isGroup()) {
@@ -845,6 +831,19 @@ public class CallActivity extends Activity implements CallManager.Listener {
                 });
             });
         }
+        roundButton(row, new ImageView(this), R.drawable.zd_ic_call_end, RED, "Kết thúc", endClick); // ở giữa hàng
+        micIcon = new ImageView(this);
+        micBtn = roundButton(row, micIcon, R.drawable.zd_ic_mic, btnBg, "Mic",
+                v -> CallManager.get().setMuted(!CallManager.get().muted()));
+        recIcon = new ImageView(this);
+        recBtn = roundButton(row, recIcon, R.drawable.zd_ic_record, btnBg, "Ghi âm", v -> {
+            if (CallManager.get().state() != CallManager.State.CONNECTED) {
+                Toast.makeText(this, "Ghi âm được khi đã nối máy", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            CallManager.get().toggleRecording();
+        });
+        recLabel = (TextView) ((LinearLayout) recBtn.getParent()).getChildAt(1);
         root.addView(row, new LinearLayout.LayoutParams(-1, -2));
         normalRow = row;
 
