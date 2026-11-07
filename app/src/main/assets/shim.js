@@ -3687,7 +3687,7 @@
     };
     /*
      * Nhận cuộc gọi đến: máy chủ chỉ đẩy lời mời (act "request") cho phiên kiểu Zalo PC. Gọi lại getLoginInfo của chính
-     * trang với type 24 / client_version 665 (như ctdozlite upgrade_session_for_group_call) rồi trả cấu hình về 30 ngay;
+     * trang với type 24 / client_version 695 (Zalo PC 26.11.10; ctdozlite dùng 665, upgrade_session_for_group_call) rồi trả cấu hình về 30 ngay;
      * các yêu cầu khác của trang vẫn là Zalo Web. Kết quả: {error_code, haspcclient}. Không trả khoá phiên ra ngoài.
      */
     /* Tự động ghi âm theo "người lạ / người trong danh bạ": uid có trong danh sách bạn bè của Zalo Web không. */
@@ -3723,7 +3723,7 @@
       if (!cfgApi) return done(false, { _err: 'config not found' });
       var oldT = cfgApi.apiType, oldV = cfgApi.apiVersion;
       cfgApi.apiType = 24;
-      cfgApi.apiVersion = 665;
+      cfgApi.apiVersion = 695; // = Zalo PC 26.11.10 (665 cũ: điện thoại coi là bản cũ, chặn tính năng mới)
       var p;
       try { p = sigApi.getLoginInfo(localStorage.getItem('z_uuid'), 'vi'); } finally {
         cfgApi.apiType = oldT;

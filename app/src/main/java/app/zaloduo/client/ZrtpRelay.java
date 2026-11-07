@@ -352,11 +352,13 @@ final class ZrtpRelay {
         Server s = active;
         if (s == null || rtpSock == null) return;
         int off = cameraOn ? 0 : 1;
-        ByteBuffer body = ByteBuffer.allocate(20).order(ByteOrder.LITTLE_ENDIAN);
-        body.putInt(0).putInt(off).putInt(off).putInt((int) Math.max(0, pingMs)).putInt(0);
-        ByteBuffer bb = ByteBuffer.allocate(25 + 20).order(ByteOrder.LITTLE_ENDIAN);
+        ByteBuffer body = ByteBuffer.allocate(22).order(ByteOrder.LITTLE_ENDIAN);
+        // + 2 byte cuối 00 80 như Zalo điện thoại (thấy 2026-11-07, nhật ký từ máy thật): có lẽ cờ khả năng của bản mới —
+        // Zalo PC 20 byte không có. Thiếu thì điện thoại báo ZaloDuo "không hỗ trợ" chuyển sang video (giả thuyết).
+        body.putInt(0).putInt(off).putInt(off).putInt((int) Math.max(0, pingMs)).putInt(0).put((byte) 0x00).put((byte) 0x80);
+        ByteBuffer bb = ByteBuffer.allocate(25 + 22).order(ByteOrder.LITTLE_ENDIAN);
         bb.put((byte) 1).put((byte) 1).putInt(0).putInt(videoCtlSeq++).putInt(partnerUid).putInt(s.token)
-                .putShort((short) 0x0020).put((byte) 0x0A).putInt(20).put(body.array());
+                .putShort((short) 0x0020).put((byte) 0x0A).putInt(22).put(body.array());
         send(rtpSock, bb.array(), s.rtpAddr);
     }
 

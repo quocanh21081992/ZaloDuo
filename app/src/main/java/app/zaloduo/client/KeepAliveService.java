@@ -262,7 +262,10 @@ public class KeepAliveService extends Service {
                 .setContentIntent(open)
                 .setOngoing(true)
                 .setShowWhen(false)
-                .setCategory(mediaActive ? Notification.CATEGORY_CALL : Notification.CATEGORY_SERVICE);
+                .setCategory(mediaActive ? Notification.CATEGORY_CALL : Notification.CATEGORY_SERVICE)
+                // Nhóm riêng: không có nhóm thì Android (EMUI…) tự gộp chung với thông báo tin nhắn / cuộc gọi, thẻ gộp
+                // thu gọn lấy tên người (vd. "Lê Dương") làm tiêu đề thay cho "ZaloDuo đang chạy nền".
+                .setGroup("zaloduo.service");
         if (mediaActive) {
             PendingIntent speaker = PendingIntent.getService(this, 102,
                     new Intent(this, KeepAliveService.class).setAction(ACTION_SPEAKER),

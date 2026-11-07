@@ -50,7 +50,8 @@ final class CallNotify {
                 .setOngoing(true)
                 .setOnlyAlertOnce(!incoming)
                 .setCategory(Notification.CATEGORY_CALL)
-                .addPerson(who);
+                .addPerson(who)
+                .setGroup("zaloduo.call"); // nhóm riêng: không bị gộp chung với thông báo tin nhắn
         if (incoming) {
             // Nút Trả lời mở thẳng màn hình cuộc gọi (kèm lệnh nghe máy): Android 10+ chặn dịch vụ nền tự mở màn hình.
             PendingIntent answer = PendingIntent.getActivity(c, 112,
