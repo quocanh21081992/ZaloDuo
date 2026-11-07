@@ -26,7 +26,7 @@
   ['showNotification', 'cancelNotification', 'permission', 'requestPermission', 'isHidden', 'mediaActive',
     'ringing', 'saveFile', 'shareFile', 'log', 'mobileState', 'systemBars', 'pageReady', 'diag', 'convList',
     'nativeLayout', 'connState', 'needLogin', 'prefetch', 'dockState', 'connLog', 'convOpened', 'showKeyboard',
-    'callEvent', 'callSigResult', 'startCall', 'startGroupCall'].forEach(function (m) {
+    'callEvent', 'callSigResult', 'startCall', 'startGroupCall', 'convBubble'].forEach(function (m) {
     bridge[m] = function () {
       var b = window.ZaloBridge;
       if (!b || typeof b[m] !== 'function') return m === 'permission' ? 'default' : undefined;
@@ -2772,6 +2772,7 @@
         }).pop();
         if (!pop) { if (n < 20) setTimeout(function () { placeMenu(top, n + 1); }, 30); else focusEnd(false); return; }
         pop.classList.add('zd-conv-pop');
+        safe(function () { addBubbleItem(pop); });
         // Menu ngay dưới thẻ; không đủ chỗ thì lên trên thẻ; cả hai đều không đủ thì đẩy thẻ lên cho menu vừa bên
         // dưới (như app Zalo). Nền phủ che cả dock nên dùng hết chiều cao màn hình.
         var vh = window.innerHeight, ph = pop.offsetHeight, gap = 6, card = top, t;
@@ -2788,6 +2789,30 @@
         if (api.trackMenus) api.trackMenus();
         if (M.sync) M.sync();
         safe(syncNative);
+      }
+      /*
+       * Mục "Đưa ra bong bóng chat" ở đầu menu (cùng kiểu với mục của Zalo): app hiện bong bóng chat của hội thoại này
+       * (JsBridge.convBubble), rồi đóng menu như chạm ra ngoài.
+       */
+      function addBubbleItem(pop) {
+        if (pop.querySelector('.zd-bubble-item')) return;
+        var first = pop.querySelector('.zmenu-item');
+        if (!first) return;
+        var it = first.cloneNode(false);
+        it.classList.add('zd-bubble-item');
+        it.removeAttribute('id');
+        it.textContent = 'Đưa ra bong bóng chat';
+        it.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          bridge.convBubble(id);
+          ['mousedown', 'mouseup', 'click'].forEach(function (t) {
+            document.body.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window,
+              clientX: 2, clientY: 2 }));
+          });
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+        }, true);
+        first.parentNode.insertBefore(it, first);
       }
       safe(attempt);
     };

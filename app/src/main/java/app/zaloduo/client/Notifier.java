@@ -312,6 +312,21 @@ final class Notifier {
      */
     static void bubbleForConversation(Context c, String convId) {
         if (!Prefs.bubbleOnHome(c) || !wantBubble(c, convId)) return;
+        postConversationBubble(c, convId, false);
+    }
+
+    /** Người dùng chọn "Đưa ra bong bóng chat" ở menu giữ lâu một hội thoại: luôn hiện (bỏ qua phạm vi trong Cài đặt). */
+    static void bubbleOnRequest(Context c, String convId) {
+        if (convId == null || convId.isEmpty()) return;
+        if (Build.VERSION.SDK_INT < 30) {
+            App.MAIN.post(() -> android.widget.Toast.makeText(c, "Bong bóng chat cần Android 11 trở lên",
+                    android.widget.Toast.LENGTH_LONG).show());
+            return;
+        }
+        postConversationBubble(c, convId, true); // người dùng chủ động chọn: mở luôn khung chat trong bong bóng
+    }
+
+    private static void postConversationBubble(Context c, String convId, boolean expand) {
         if (Build.VERSION.SDK_INT < 30) return;
         String[] info = convInfo.get(convId);
         String name = info != null && !info[0].isEmpty() ? info[0] : c.getString(R.string.app_name);
@@ -336,7 +351,7 @@ final class Notifier {
                     .setContentIntent(pi);
             if (icon != null) b.setLargeIcon(icon);
             try {
-                addBubble(c, b, convId, name, last, icon, nid, false, true);
+                addBubble(c, b, convId, name, last, icon, nid, expand, true);
                 post(c, nid, b.build());
                 DiagLog.add("bubble for open conversation (app to home)");
             } catch (RuntimeException e) {
