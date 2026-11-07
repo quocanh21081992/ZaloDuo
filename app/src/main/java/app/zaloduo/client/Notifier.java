@@ -246,7 +246,9 @@ final class Notifier {
                 .setAutoCancel(true)
                 .setContentIntent(pi);
         if (icon != null) b.setLargeIcon(icon);
-        if (Build.VERSION.SDK_INT >= 30 && wantBubble(c, tag)) {
+        if (wantBubble(c, tag) && ChatHead.preferred(c)) {
+            ChatHead.show(c, tag, title, icon); // máy không hiện bong bóng của Android: bong bóng tự vẽ
+        } else if (Build.VERSION.SDK_INT >= 30 && wantBubble(c, tag)) {
             try {
                 addBubble(c, b, tag, title.isEmpty() ? c.getString(R.string.app_name) : title, body, icon, nid,
                         Prefs.bubbleAutoExpand(c), Prefs.bubbleHideNotif(c));
@@ -312,7 +314,9 @@ final class Notifier {
      * thoại đó để chat tiếp. Chỉ có bong bóng (không thêm thông báo, không kêu); bong bóng thu gọn, chạm để mở.
      */
     static void bubbleForConversation(Context c, String convId) {
-        if (Build.VERSION.SDK_INT < 30 || !Prefs.bubbleOnHome(c) || !wantBubble(c, convId)) return;
+        if (!Prefs.bubbleOnHome(c) || !wantBubble(c, convId)) return;
+        boolean head = ChatHead.preferred(c);
+        if (!head && Build.VERSION.SDK_INT < 30) return;
         String[] info = convInfo.get(convId);
         String name = info != null && !info[0].isEmpty() ? info[0] : c.getString(R.string.app_name);
         String avatar = info != null ? info[1] : null;
@@ -320,6 +324,10 @@ final class Notifier {
         int nid = idForTag(convId);
         App.IO.execute(() -> {
             Bitmap icon = loadIcon(avatar);
+            if (head) {
+                ChatHead.show(c, convId, name, icon, true);
+                return;
+            }
             Intent open = new Intent(c, MainActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     .putExtra(MainActivity.EXTRA_CONV, convId);

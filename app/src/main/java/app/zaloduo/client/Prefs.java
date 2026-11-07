@@ -122,6 +122,10 @@ final class Prefs {
     static final String BUBBLE_HIDE_NOTIF = "bubble_hide_notif";
     static boolean bubbleHideNotif(Context c) { return bool(c, BUBBLE_HIDE_NOTIF, false); }
 
+    /** Kiểu bong bóng: 0 tự động (Huawei/Honor, Android < 11: tự vẽ), 1 bong bóng của Android, 2 tự vẽ (ChatHead). */
+    static final String BUBBLE_MODE = "bubble_mode";
+    static int bubbleMode(Context c) { return integer(c, BUBBLE_MODE, 0); }
+
     /** Vuốt app về màn hình chính khi đang mở một hội thoại: tự hiện bong bóng của hội thoại đó. */
     static final String BUBBLE_ON_HOME = "bubble_on_home";
     static boolean bubbleOnHome(Context c) { return bool(c, BUBBLE_ON_HOME, true); }

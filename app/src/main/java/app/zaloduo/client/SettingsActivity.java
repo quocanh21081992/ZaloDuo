@@ -169,6 +169,11 @@ public class SettingsActivity extends Activity {
                     () -> safeStart(new Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
                             android.net.Uri.parse("package:" + getPackageName()))));
         }
+        // Bong bóng chat tự vẽ (Huawei / Android < 11) cần quyền hiển thị trên ứng dụng khác.
+        button(ChatHead.canDraw(this) ? "Hiển thị trên ứng dụng khác (bong bóng chat): đã cho phép"
+                        : "Cho phép hiển thị trên ứng dụng khác (bong bóng chat)",
+                () -> safeStart(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.parse("package:" + getPackageName()))));
         storageButton = button(storageLabel(), this::askStorage);
     }
 
@@ -241,18 +246,39 @@ public class SettingsActivity extends Activity {
 
     /** Bong bóng chat (Android 11+): bật/tắt, cách hiện, quyền bong bóng của Android. */
     private void buildBubbles() {
-        if (android.os.Build.VERSION.SDK_INT < 30) {
-            note("Bong bóng chat cần Android 11 trở lên.");
+        toggle("Hiện tin nhắn mới dạng bong bóng chat", Prefs.BUBBLES, true, null);
+        dropdown("Kiểu bong bóng",
+                new String[]{"Tự động (Huawei / Honor / Android dưới 11: nổi trên ứng dụng khác)",
+                        "Bong bóng của Android (Android 11+)", "Nổi trên ứng dụng khác (cần cấp quyền)"},
+                Prefs.bubbleMode(this), v -> {
+                    Prefs.put(this, Prefs.BUBBLE_MODE, v);
+                    recreate(); // hiện / ẩn nút quyền tương ứng
+                });
+        if (ChatHead.preferred(this)) {
+            boolean ok = ChatHead.canDraw(this);
+            button(ok ? "Hiển thị trên ứng dụng khác: đã cho phép" : "Cho phép hiển thị trên ứng dụng khác (bắt buộc)",
+                    () -> safeStart(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            android.net.Uri.parse("package:" + getPackageName()))));
+            if (isHuawei()) note("Huawei: nếu vẫn không thấy bong bóng, vào Cài đặt → Ứng dụng → ZaloDuo → bật "
+                    + "\"Hiển thị trên ứng dụng khác\" / \"Cửa sổ nổi\".");
+        }
+        toggle("Vuốt app về màn hình chính khi đang chat: tự hiện bong bóng của cuộc trò chuyện đó",
+                Prefs.BUBBLE_ON_HOME, true, null);
+        if (ChatHead.preferred(this)) {
+            dropdown("Hiện bong bóng cho", new String[]{"Mọi cuộc trò chuyện", "Chỉ chat 1-1", "Chỉ nhóm"},
+                    Prefs.bubbleScope(this), v -> Prefs.put(this, Prefs.BUBBLE_SCOPE, v));
+            note("Chạm bong bóng để mở cuộc trò chuyện, kéo để di chuyển, kéo xuống dấu ✕ ở đáy màn hình để đóng.");
             return;
         }
-        toggle("Hiện tin nhắn mới dạng bong bóng chat", Prefs.BUBBLES, true, null);
+        if (android.os.Build.VERSION.SDK_INT < 30) {
+            note("Bong bóng của Android cần Android 11 trở lên — chọn kiểu \"Nổi trên ứng dụng khác\".");
+            return;
+        }
         dropdown("Hiện bong bóng cho", new String[]{"Mọi cuộc trò chuyện", "Chỉ chat 1-1", "Chỉ nhóm"},
                 Prefs.bubbleScope(this), v -> Prefs.put(this, Prefs.BUBBLE_SCOPE, v));
         toggle("Tự mở khung chat khi có tin nhắn mới (không chỉ hiện bong bóng thu gọn)",
                 Prefs.BUBBLE_AUTO_EXPAND, false, null);
         toggle("Ẩn thông báo trên thanh trạng thái khi đã hiện bong bóng", Prefs.BUBBLE_HIDE_NOTIF, false, null);
-        toggle("Vuốt app về màn hình chính khi đang chat: tự hiện bong bóng của cuộc trò chuyện đó",
-                Prefs.BUBBLE_ON_HOME, true, null);
         android.app.NotificationManager nm = getSystemService(android.app.NotificationManager.class);
         boolean allowed;
         if (android.os.Build.VERSION.SDK_INT >= 31) {

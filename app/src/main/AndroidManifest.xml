@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Bong bóng chat tự vẽ (ChatHead) cho máy không hiện bong bóng của Android (Huawei, Android < 11). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Lưu ghi âm / ảnh / video vào Bộ nhớ trong/ZaloDuo (Android 11+: người dùng tự bật "Truy cập mọi tệp"). -->
