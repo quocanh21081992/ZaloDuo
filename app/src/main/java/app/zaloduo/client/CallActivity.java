@@ -52,7 +52,9 @@ public class CallActivity extends Activity implements CallManager.Listener {
     private boolean cropVideo;
     private int vidW, vidH;
     private ImageView avatar, speakerIcon, micIcon;
-    private View speakerBtn, micBtn;
+    private View speakerBtn, micBtn, recBtn;
+    private ImageView recIcon;
+    private TextView recLabel;
     private String pendingUid, pendingName, pendingAvatar, loadedAvatar;
     private boolean pendingVideo;
     private View avatarBox, camBtn;
@@ -89,6 +91,7 @@ public class CallActivity extends Activity implements CallManager.Listener {
                 stats.setVisibility(View.GONE);
             }
             brand.setVisibility(stats.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); // thông số thay chữ "Zalo"
+            updateRecButton(); // thời gian đang ghi
             status.postDelayed(this, 500);
         }
     };
@@ -430,6 +433,7 @@ public class CallActivity extends Activity implements CallManager.Listener {
         setToggle(micBtn, micIcon, m.muted());
         micIcon.setImageResource(m.muted() ? R.drawable.zd_ic_mic_off : R.drawable.zd_ic_mic);
         if (inPip && pipMuted != m.muted()) { pipMuted = m.muted(); refreshPip(); } // đổi biểu tượng mic trên cửa sổ nổi
+        updateRecButton();
         CallVideo v = m.video();
         if (camBtn != null) {
             boolean off = v != null && !v.cameraOn();
@@ -498,6 +502,23 @@ public class CallActivity extends Activity implements CallManager.Listener {
             @Override public void onSurfaceTextureUpdated(android.graphics.SurfaceTexture st) { }
         });
         return tv;
+    }
+
+    /** Nút ghi âm: đang ghi = nền trắng, ô vuông đỏ (bấm để dừng), nhãn "Dừng mm:ss" (thời gian đã ghi); chưa nối máy thì mờ. */
+    private void updateRecButton() {
+        if (recBtn == null) return;
+        CallManager m = CallManager.get();
+        boolean on = m.recording();
+        recBtn.setAlpha(m.state() == CallManager.State.CONNECTED ? 1f : 0.4f);
+        ((GradientDrawable) recBtn.getBackground()).setColor(on ? Color.WHITE : btnBg);
+        recIcon.setImageResource(on ? R.drawable.zd_ic_record_stop : R.drawable.zd_ic_record);
+        recIcon.setImageTintList(ColorStateList.valueOf(on ? RED : Color.WHITE));
+        if (on) {
+            long s = Math.max(0, (System.currentTimeMillis() - m.recordingSince()) / 1000);
+            recLabel.setText(String.format(Locale.US, "Dừng %d:%02d", s / 60, s % 60));
+        } else {
+            recLabel.setText("Ghi âm");
+        }
     }
 
     /** Nút bật: nền trắng, icon xanh; tắt: nền xanh đậm, icon trắng. */
@@ -735,8 +756,8 @@ public class CallActivity extends Activity implements CallManager.Listener {
 
         root.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
 
-        // Nút — thoại: Loa / Kết thúc / Mic (như Zalo); video: Loa / Camera / Mic / Kết thúc (nút đỏ ngoài cùng bên phải).
-        btnSize = videoMode ? 64 : 72;
+        // Nút — thoại: Loa / Kết thúc / Mic / Ghi âm; video: Loa / Camera / Kết thúc / Mic / Ghi âm (nút đỏ ở giữa).
+        btnSize = videoMode ? 56 : 64;
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER);
         View.OnClickListener endClick = v -> {
@@ -754,13 +775,20 @@ public class CallActivity extends Activity implements CallManager.Listener {
                 CallManager.get().setCameraOn(!cv.cameraOn());
                 localView.setAlpha(cv.cameraOn() ? 1f : 0f);
             });
-        } else {
-            roundButton(row, new ImageView(this), R.drawable.zd_ic_call_end, RED, "Kết thúc", endClick);
         }
+        roundButton(row, new ImageView(this), R.drawable.zd_ic_call_end, RED, "Kết thúc", endClick); // ở giữa hàng
         micIcon = new ImageView(this);
         micBtn = roundButton(row, micIcon, R.drawable.zd_ic_mic, btnBg, "Mic",
                 v -> CallManager.get().setMuted(!CallManager.get().muted()));
-        if (videoMode) roundButton(row, new ImageView(this), R.drawable.zd_ic_call_end, RED, "Kết thúc", endClick);
+        recIcon = new ImageView(this);
+        recBtn = roundButton(row, recIcon, R.drawable.zd_ic_record, btnBg, "Ghi âm", v -> {
+            if (CallManager.get().state() != CallManager.State.CONNECTED) {
+                Toast.makeText(this, "Ghi âm được khi đã nối máy", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            CallManager.get().toggleRecording();
+        });
+        recLabel = (TextView) ((LinearLayout) recBtn.getParent()).getChildAt(1);
         root.addView(row, new LinearLayout.LayoutParams(-1, -2));
         normalRow = row;
 

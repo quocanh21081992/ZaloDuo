@@ -67,6 +67,11 @@ final class CallAudio {
 
     void setMuted(boolean m) { muted = m; }
 
+    /** Đang ghi âm: nhận tiếng micro (sau tắt mic) và tiếng bên kia đúng như phát ra loa. */
+    private volatile CallRecorder recorder;
+
+    void setRecorder(CallRecorder r) { recorder = r; }
+
     /** Máy có bộ mã hoá Opus của hệ thống (Android 10+) thì dùng MediaCodec; không thì Concentus (Opus thuần Java). */
     private static Boolean nativeOpus;
 
@@ -154,6 +159,8 @@ final class CallAudio {
                 for (int i = 0; i < FRAME; i++) { out[2 * i] = (byte) mix[i]; out[2 * i + 1] = (byte) (mix[i] >> 8); }
                 // write chặn theo nhịp phát của loa (~20 ms/khung) nên vòng lặp tự đều nhịp; chưa ai nói thì phát im lặng.
                 track.write(out, 0, out.length);
+                CallRecorder recR = recorder;
+                if (recR != null) recR.remoteShorts(mix, FRAME);
                 if (!any && peers.isEmpty()) Thread.sleep(5);
             }
         } catch (InterruptedException ignored) {
@@ -262,6 +269,8 @@ final class CallAudio {
                 }
                 if (!running) break;
                 if (muted) java.util.Arrays.fill(pcm, (byte) 0);
+                CallRecorder recM = recorder;
+                if (recM != null) recM.mic(pcm, pcm.length);
                 int in = enc.dequeueInputBuffer(20000);
                 if (in >= 0) {
                     ByteBuffer ib = enc.getInputBuffer(in);
@@ -329,6 +338,8 @@ final class CallAudio {
                 }
                 if (!running) break;
                 if (muted) java.util.Arrays.fill(pcm, (byte) 0);
+                CallRecorder recM = recorder;
+                if (recM != null) recM.mic(pcm, pcm.length);
                 int h = headerLen();
                 int n = enc.encode(pcm, 0, FRAME, rtp, h, 1500);
                 if (n > 0) {
@@ -391,6 +402,8 @@ final class CallAudio {
                 if (samples <= 0) continue;
                 if (track == null) track = newTrack(RATE, 1);
                 track.write(pcm, 0, samples * 2);
+                CallRecorder recR = recorder;
+                if (recR != null) recR.remote(pcm, 0, samples * 2, RATE, 1);
                 decoded++;
             }
         } catch (InterruptedException ignored) {
@@ -448,6 +461,8 @@ final class CallAudio {
                         ob.position(info.offset);
                         ob.get(pcm, 0, info.size);
                         track.write(pcm, 0, info.size);
+                        CallRecorder recR = recorder;
+                        if (recR != null) recR.remote(pcm, 0, info.size, outRate, outCh);
                         decoded++;
                     }
                     dec.releaseOutputBuffer(out, false);

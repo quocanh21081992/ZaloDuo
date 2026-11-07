@@ -3677,6 +3677,7 @@
       }
       try {
         if (op === 'upgradeSession') return upgradeSession(done);
+        if (op === 'isFriend') return isFriend(JSON.parse(argsJson || '[]')[0], done);
         if (!SIG_OPS[op]) return done(false, { _err: 'op ' + op });
         if (!findApis()) return done(false, { _err: 'zalo call api not found' });
         var args = JSON.parse(argsJson || '[]');
@@ -3689,6 +3690,24 @@
      * trang với type 24 / client_version 665 (như ctdozlite upgrade_session_for_group_call) rồi trả cấu hình về 30 ngay;
      * các yêu cầu khác của trang vẫn là Zalo Web. Kết quả: {error_code, haspcclient}. Không trả khoá phiên ra ngoài.
      */
+    /* Tự động ghi âm theo "người lạ / người trong danh bạ": uid có trong danh sách bạn bè của Zalo Web không. */
+    var friendStore = null;
+    function isFriend(uid, done) {
+      if (!friendStore) {
+        var r = wreq(), ids = r && r.c ? Object.keys(r.c) : [];
+        for (var i = 0; i < ids.length && !friendStore; i++) {
+          try {
+            var d = r.c[ids[i]].exports && r.c[ids[i]].exports['default'];
+            if (d && typeof d.getConversations === 'function' && typeof d.getFriends === 'function') friendStore = d;
+          } catch (e) { /* ignore */ }
+        }
+      }
+      if (!friendStore) return done(false, { _err: 'friend store not found' });
+      Promise.resolve(friendStore.getFriends()).then(function (fs) {
+        var id = String(uid);
+        done(true, { friend: (fs || []).some(function (f) { return f && String(f.userId) === id; }) });
+      }, function (e) { done(false, { _err: String(e && e.message || e) }); });
+    }
     var cfgApi = null;
     function upgradeSession(done) {
       if (!findApis() || typeof sigApi.getLoginInfo !== 'function') return done(false, { _err: 'getLoginInfo not found' });

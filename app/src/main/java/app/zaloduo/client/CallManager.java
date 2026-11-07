@@ -778,6 +778,10 @@ final class CallManager {
         long dur;
         synchronized (this) {
             if (myGen != gen || !busy()) return;
+        }
+        stopRecording(); // kết thúc cuộc gọi: đóng và lưu file ghi âm
+        synchronized (this) {
+            if (myGen != gen || !busy()) return;
             r = relay; a = audio; v = video;
             relay = null; audio = null; video = null;
             stT = 0; stText = "";
@@ -813,9 +817,74 @@ final class CallManager {
         synchronized (this) { return myGen == gen && busy(); }
     }
 
+    // ------------------------------------------------------------------ ghi âm
+
+    private CallRecorder rec;
+
+    synchronized boolean recording() { return rec != null; }
+
+    synchronized long recordingSince() { return rec != null ? rec.startedAt() : 0; }
+
+    /** Nút ghi âm trên màn hình gọi. Chỉ ghi khi đã nối máy (có tiếng hai bên). */
+    void toggleRecording() {
+        if (recording()) stopRecording(); else startRecording();
+    }
+
+    void startRecording() {
+        CallRecorder r;
+        CallAudio a;
+        synchronized (this) {
+            if (rec != null || audio == null || app == null || state != State.CONNECTED) return;
+            a = audio;
+            r = rec = new CallRecorder(app, partnerName);
+        }
+        r.start();
+        a.setRecorder(r);
+        notifyListener();
+    }
+
+    void stopRecording() {
+        CallRecorder r;
+        CallAudio a;
+        synchronized (this) { r = rec; a = audio; rec = null; }
+        if (r == null) return;
+        if (a != null) a.setRecorder(null);
+        Context c = app;
+        r.stop(where -> App.MAIN.post(() -> android.widget.Toast.makeText(c,
+                where == null ? "Không lưu được ghi âm cuộc gọi" : "Đã lưu ghi âm: " + where,
+                android.widget.Toast.LENGTH_LONG).show()));
+        notifyListener();
+    }
+
+    /** Vừa nối máy: tự ghi âm theo Cài đặt (mọi cuộc gọi / người lạ / người trong danh bạ — chỉ áp cho gọi 1-1). */
+    private void maybeAutoRecord() {
+        if (app == null) return;
+        int mode = Prefs.autoRecord(app);
+        if (mode == 0) return;
+        if (mode == 1) { App.MAIN.post(this::startRecording); return; }
+        final int g;
+        final String uid;
+        synchronized (this) {
+            if (group) return;
+            g = gen;
+            uid = partnerId;
+        }
+        CallSignal.call("isFriend", new JSONArray().put(uid), (ok, body) -> {
+            if (!ok || body == null || !body.has("friend") || !current(g)) {
+                CallEvents.log("auto record: friend check failed " + CallSignal.describe(body));
+                return;
+            }
+            boolean friend = body.optBoolean("friend");
+            CallEvents.log("auto record: friend=" + friend + " mode=" + mode);
+            if ((mode == 3) == friend) App.MAIN.post(this::startRecording);
+        });
+    }
+
     private void setState(State s, String d) {
-        synchronized (this) { state = s; detail = d == null ? "" : d; }
+        State prev;
+        synchronized (this) { prev = state; state = s; detail = d == null ? "" : d; }
         CallEvents.log("state " + s + (d == null || d.isEmpty() ? "" : " (" + d + ")"));
+        if (s == State.CONNECTED && prev != State.CONNECTED) maybeAutoRecord();
         boolean ringback;
         synchronized (this) { ringback = s == State.RINGING && !incoming; }
         App.MAIN.post(() -> setRingback(ringback));

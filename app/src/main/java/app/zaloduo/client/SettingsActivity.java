@@ -39,6 +39,7 @@ public class SettingsActivity extends Activity {
     protected void onResume() {
         super.onResume();
         refreshStatus();
+        if (storageButton != null) storageButton.setText(storageLabel()); // vừa cấp quyền trong cài đặt hệ thống
     }
 
     /** Dòng trạng thái: phiên bản app, script trong trang Zalo có chạy không, đã nhận dạng bố cục chưa. */
@@ -117,6 +118,10 @@ public class SettingsActivity extends Activity {
         toggle("Hiện thông số cuộc gọi (ping, tốc độ tiếng / hình) ở góc màn hình gọi", Prefs.CALL_STATS, true, null);
         ringtoneButton = button(ringtoneLabel(), this::pickRingtone);
         ringbackButton = button(ringbackLabel(), this::pickRingback);
+        dropdown("Tự động ghi âm cuộc gọi",
+                new String[]{"Tắt", "Mọi cuộc gọi", "Với người lạ", "Với người trong danh bạ"},
+                Prefs.autoRecord(this), v -> Prefs.sp(this).edit().putInt(Prefs.AUTO_RECORD, v).apply());
+        storageButton = button(storageLabel(), this::askStorage);
         button("Sao chép nhật ký cuộc gọi (gửi khi báo lỗi gọi)", () -> {
             String log = CallEvents.dump();
             ClipboardManager cm = getSystemService(ClipboardManager.class);
@@ -472,6 +477,33 @@ public class SettingsActivity extends Activity {
         } catch (android.content.ActivityNotFoundException e) {
             android.widget.Toast.makeText(this, "Máy không có trình chọn nhạc chuông", android.widget.Toast.LENGTH_SHORT).show();
         }
+    }
+
+    // ------------------------------------------------------------------ thư mục ZaloDuo (ghi âm, ảnh, video)
+
+    private Button storageButton;
+
+    private String storageLabel() {
+        if (Storage.canWriteRoot(this)) return "Ghi âm, ảnh, video lưu tại: Bộ nhớ trong/ZaloDuo";
+        if (android.os.Build.VERSION.SDK_INT == 29) return "Ghi âm, ảnh, video lưu tại: Download/ZaloDuo (Android 10)";
+        return "Cho phép lưu vào Bộ nhớ trong/ZaloDuo (đang lưu ở " + Storage.base(this) + ")";
+    }
+
+    /** Android 11+: trang "Truy cập mọi tệp" của app; Android 9 trở xuống: hỏi quyền bộ nhớ. */
+    private void askStorage() {
+        if (Storage.canWriteRoot(this) || android.os.Build.VERSION.SDK_INT == 29) return;
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            safeStart(new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    android.net.Uri.parse("package:" + getPackageName())));
+        } else {
+            requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE}, 79);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int req, String[] perms, int[] res) {
+        super.onRequestPermissionsResult(req, perms, res);
+        if (req == 79 && storageButton != null) storageButton.setText(storageLabel());
     }
 
     // ------------------------------------------------------------------ hồi chuông khi gọi đi

@@ -75,6 +75,10 @@ final class Prefs {
         else sp(c).edit().putString(RINGTONE, u == null ? "" : u.toString()).apply();
     }
 
+    static final String AUTO_RECORD = "call_auto_record";
+    /** Tự động ghi âm cuộc gọi: 0 tắt, 1 mọi cuộc gọi, 2 với người lạ, 3 với người trong danh bạ (bạn bè Zalo). */
+    static int autoRecord(Context c) { return integer(c, AUTO_RECORD, 0); }
+
     static final String RINGBACK = "call_ringback";
 
     /** Hồi chuông có sẵn trong app (res/raw/ringback.mp3). */
