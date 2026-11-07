@@ -279,14 +279,23 @@ final class ZrtpRelay {
                 }
             } else {
                 // Gói điều khiển khác (vd. lời mời chuyển sang video của Zalo điện thoại?): ghi lại để tìm hiểu.
+                // cmd 0x20 = RequestForward (bên kia gửi qua relay), sub 0x0A = VideoControl (trạng thái camera, có lẽ
+                // cả lời mời chuyển sang video), 0x14 = IncallNegotiateInfo (ctdozlite, libzrtc.so). Ghi lại mỗi khi phần
+                // dữ liệu (sau 25 byte đầu) đổi khác — để bắt được gói lời mời / trả lời của Zalo điện thoại.
                 String key = "ctl " + cmd + "/" + (n > 20 ? b[20] & 0xFF : -1);
+                StringBuilder body = new StringBuilder();
+                for (int i = 25; i < Math.min(n, 160); i++) body.append(String.format("%02x", b[i]));
                 synchronized (rxKinds) {
                     Integer c = rxKinds.get(key);
                     rxKinds.put(key, c == null ? 1 : c + 1);
-                    if (c == null || c < 3) {
+                    String last = ctlLast.get(key);
+                    Integer logged = ctlLogged.get(key);
+                    if (!body.toString().equals(last) && (logged == null || logged < 60)) {
+                        ctlLast.put(key, body.toString());
+                        ctlLogged.put(key, logged == null ? 1 : logged + 1);
                         StringBuilder hx = new StringBuilder();
-                        for (int i = 0; i < Math.min(n, 96); i++) hx.append(String.format("%02x", b[i]));
-                        CallEvents.log("relay rx " + key + " len=" + n + " " + hx);
+                        for (int i = 0; i < Math.min(n, 25); i++) hx.append(String.format("%02x", b[i]));
+                        CallEvents.log("relay rx " + key + " len=" + n + " hdr=" + hx + " body=" + body);
                     }
                 }
             }
@@ -327,6 +336,30 @@ final class ZrtpRelay {
      * ZRTP IncallNegotiateInfo (cmd 0x20, sub 0x14) với H264DecCapacityInfo(1080p, 30 fps; ZaloCall.exe báo 720p) + NegoNetworkInfo —
      * gửi định kỳ trong cuộc gọi video (ctdozlite build_zrtp_incall_negotiate_packet; ô callId mang uid bên kia).
      */
+    private final java.util.HashMap<String, String> ctlLast = new java.util.HashMap<>();
+    private final java.util.HashMap<String, Integer> ctlLogged = new java.util.HashMap<>();
+    private int videoCtlSeq = 1;
+
+    /**
+     * ZRTP RequestForward (cmd 0x20) VideoControl (sub 0x0A): trạng thái camera gửi cho bên kia mỗi giây, như Zalo PC
+     * (thấy 2026-11-07: PC không có webcam, đang gọi thoại gửi 20 byte = 5 số nguyên little-endian [0,1,1,rtt,0], ô "seq" = 0,
+     * ô sau tăng dần 1,2,3...; rtt ~50 ms chỉ có sau khi ZaloDuo cũng gửi gói này). Có lẽ là [?, cameraOff, offReason,
+     * rttMs, ?] (ZaloCall.exe có localCameraOff /
+     * partnerCameraOffReason). Không gửi thì Zalo điện thoại coi ZaloDuo "không hỗ trợ" chuyển sang video (giả thuyết).
+     * Camera bật gửi [0,0,0,rtt,0] — đoán, chưa đối chiếu được.
+     */
+    void sendVideoControl(boolean cameraOn) {
+        Server s = active;
+        if (s == null || rtpSock == null) return;
+        int off = cameraOn ? 0 : 1;
+        ByteBuffer body = ByteBuffer.allocate(20).order(ByteOrder.LITTLE_ENDIAN);
+        body.putInt(0).putInt(off).putInt(off).putInt((int) Math.max(0, pingMs)).putInt(0);
+        ByteBuffer bb = ByteBuffer.allocate(25 + 20).order(ByteOrder.LITTLE_ENDIAN);
+        bb.put((byte) 1).put((byte) 1).putInt(0).putInt(videoCtlSeq++).putInt(partnerUid).putInt(s.token)
+                .putShort((short) 0x0020).put((byte) 0x0A).putInt(20).put(body.array());
+        send(rtpSock, bb.array(), s.rtpAddr);
+    }
+
     void sendVideoNegotiate() {
         Server s = active;
         if (s == null || rtpSock == null) return;

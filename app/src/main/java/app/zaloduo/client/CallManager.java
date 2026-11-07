@@ -429,6 +429,14 @@ final class CallManager {
             // Gọi thoại: bên kia bật camera (gửi hình tới) = mời chuyển sang gọi video.
             r.setUnexpectedVideo(() -> onPeerCamera(myGen, true));
         }
+        // Như Zalo PC: báo trạng thái camera (ZRTP VideoControl) mỗi giây suốt cuộc gọi 1-1, kể cả gọi thoại.
+        App.IO.execute(() -> {
+            while (current(myGen) && relay == r) {
+                CallVideo cv = video;
+                r.sendVideoControl(cv != null && cv.cameraOn());
+                try { Thread.sleep(1000); } catch (InterruptedException e) { return; }
+            }
+        });
         setState(State.CONNECTED, "");
         // Người gọi xác nhận (408); người nhận thì bên gọi tự gửi.
         if (!incoming) CallSignal.call("sendAnswerACKCall", new JSONArray().put(partnerId).put(callId), (ok, body) -> { });
