@@ -389,13 +389,16 @@ final class CallManager {
             }
             default:
                 // Bên kia bật / tắt micro, camera (sendOnOffCamMic): Zalo PC tắt mic -> act "mute_audio", params.type 1 = tắt,
-                // 0 = bật (đã thử 2026-11-07). Camera tương tự ("mute_video" / isOnCam 1 = tắt). Gọi thoại mà bên kia bật
+                // 0 = bật (đã thử 2026-11-07). Camera: "onoff_camera", type 1 = bật (ngược với mute_*). Gọi thoại mà bên kia bật
                 // camera = mời chuyển sang video.
                 CallEvents.log("voip event data " + act + " " + data + " params=" + params);
                 if (act.contains("video") || act.contains("cam") || act.contains("onoff")) {
                     JSONObject src = params != null ? params : data;
-                    if (src.has("isOnCam")) onPeerCamera(myGen, parseLong(src.opt("isOnCam")) == 0);
-                    else if (src.has("type")) onPeerCamera(myGen, parseLong(src.opt("type")) == 0);
+                    // onoff_camera: type / isOnCam 1 = bật (ctdozlite + ZaloCall.exe); mute_video (nếu có): type 1 = tắt,
+                    // như mute_audio.
+                    boolean mute = act.contains("mute");
+                    if (src.has("isOnCam")) onPeerCamera(myGen, parseLong(src.opt("isOnCam")) == 1);
+                    else if (src.has("type")) onPeerCamera(myGen, (parseLong(src.opt("type")) == 1) != mute);
                 }
                 break;
             case "end_call":
@@ -844,14 +847,16 @@ final class CallManager {
 
     /**
      * /api/voicecall/conf (sendOnOffCamMic): báo bên kia trạng thái camera / micro để họ hiện biểu tượng tắt tiếng /
-     * tắt camera. Thử trên Zalo PC: 1 = đang tắt, 0 = đang bật (gửi isOnMic 1 thì PC hiện micro gạch đỏ).
+     * tắt camera. isOnMic: gửi 1 thì Zalo PC hiện micro gạch đỏ (thử 2026-11-06). isOnCam: 1 = camera BẬT — đọc mã
+     * ZaloCall.exe 26.11.10 (UiOnOffCameraEvent(x): stopCapture(x^1), sendOnOffMicCam(uid, callId, x, -1, "")), 2026-11-07;
+     * trước đó ZaloDuo gửi ngược (0 = bật) nên điện thoại tưởng camera tắt, không hiện lời mời chuyển video.
      */
     private void sendMediaState() {
         if (state != State.CONNECTED) return;
         CallVideo v = video();
-        int camOff = v == null || !v.cameraOn() ? 1 : 0;
+        int camOn = v != null && v.cameraOn() ? 1 : 0; // isOnCam: 1 = camera BẬT (ZaloCall.exe UiOnOffCameraEvent)
         int micOff = muted() ? 1 : 0;
-        CallSignal.call("sendOnOffCamMic", new JSONArray().put(partnerId).put(callId).put(camOff).put(micOff).put(""),
+        CallSignal.call("sendOnOffCamMic", new JSONArray().put(partnerId).put(callId).put(camOn).put(micOff).put(""),
                 (ok, body) -> { });
     }
 
