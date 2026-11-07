@@ -741,6 +741,8 @@ final class CallManager {
         end(myGen, "Đã từ chối", true);
     }
 
+    // negoVidQual:1 — Zalo điện thoại (và Zalo PC mới) đều gửi; có lẽ là cờ khả năng điện thoại xét trước khi cho chuyển
+    // cuộc gọi thoại sang video (thiếu thì báo "thiết bị không hỗ trợ") — giả thuyết, 2026-11-07.
     /** extendData của 402 (ctdozlite build_callee_extend_data): relay đã chọn, p2p, select2side. */
     private static JSONObject buildCalleeExtend(ZrtpRelay r, ZrtpRelay.Server use, boolean video) {
         JSONObject ext = new JSONObject();
@@ -758,7 +760,7 @@ final class CallManager {
                 }
             }
             ext.put("callType", video ? 1 : 0).put("fecTP", 0).put("gccAudio", 1).put("gccEarlyCall", 0).put("gccMode", 1)
-                    .put("gccSVLR", 1).put("maxFT", 60).put("newZrtc", 1).put("numServers", 0).put("p2p", p2p)
+                    .put("gccSVLR", 1).put("maxFT", 60).put("negoVidQual", 1).put("newZrtc", 1).put("numServers", 0).put("p2p", p2p)
                     .put("packetMode", 2).put("platform", 2).put("sP2P", 0).put("select2side", 1)
                     .put("serverAddr", new JSONArray().put(new JSONObject().put("rtcp", use.rtcp).put("rtcpIPv6", "")
                             .put("rtp", use.rtp).put("rtpIPv6", "").put("tpType", 0)))
@@ -1101,7 +1103,7 @@ final class CallManager {
                 }
             }
             ext.put("callType", video ? 1 : 0).put("fecTP", 0).put("gccAudio", 1).put("gccEarlyCall", 0).put("gccMode", 1)
-                    .put("gccSVLR", 1).put("maxFT", 60).put("newZrtc", 1).put("numServers", serverResult.length())
+                    .put("gccSVLR", 1).put("maxFT", 60).put("negoVidQual", 1).put("newZrtc", 1).put("numServers", serverResult.length())
                     .put("p2p", p2p).put("packetMode", 2).put("platform", 2).put("sP2P", 0)
                     .put("serverAddr", serverAddr).put("serverResult", serverResult).put("spTcp", 1).put("srtcp", 0)
                     .put("srtpMode", 0).put("supportCallBusy", 1).put("supportHevcDecode", 0).put("tpType", 0)
