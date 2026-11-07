@@ -170,6 +170,8 @@ final class Notifier {
      * vì danh sách cũ (chưa kịp tăng số chưa đọc) có thể tới ngay sau thông báo mới và làm xoá nhầm.
      */
     private static final java.util.Map<String, Boolean> shownConv = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Tên, ảnh đại diện, tin cuối của mỗi hội thoại (từ danh sách chat): dựng bong bóng khi vuốt app về màn hình chính. */
+    private static final java.util.Map<String, String[]> convInfo = new java.util.concurrent.ConcurrentHashMap<>();
     /** Hội thoại là nhóm hay không (từ danh sách chat), để lọc bong bóng theo Cài đặt. */
     private static final java.util.Map<String, Boolean> groupConv = new java.util.concurrent.ConcurrentHashMap<>();
     /** Trạng thái "còn chưa đọc" mới nhất của mỗi hội thoại trong danh sách chat. */
@@ -187,6 +189,7 @@ final class Notifier {
                 boolean unread = o.optInt("u") > 0 || o.optInt("at") > 0 || o.optInt("ud") > 0;
                 lastUnread.put(id, unread);
                 groupConv.put(id, o.optBoolean("g"));
+                convInfo.put(id, new String[]{o.optString("n"), o.optString("a"), o.optString("m")});
                 Boolean seenUnread = shownConv.get(id);
                 if (seenUnread == null) continue;
                 if (unread) {
@@ -245,7 +248,8 @@ final class Notifier {
         if (icon != null) b.setLargeIcon(icon);
         if (Build.VERSION.SDK_INT >= 30 && wantBubble(c, tag)) {
             try {
-                addBubble(c, b, tag, title.isEmpty() ? c.getString(R.string.app_name) : title, body, icon, nid);
+                addBubble(c, b, tag, title.isEmpty() ? c.getString(R.string.app_name) : title, body, icon, nid,
+                        Prefs.bubbleAutoExpand(c), Prefs.bubbleHideNotif(c));
             } catch (RuntimeException e) {
                 Log.w(WebViewHolder.TAG, "bubble", e); // không làm hỏng thông báo thường
             }
@@ -270,7 +274,8 @@ final class Notifier {
      * phép bong bóng của app trong Cài đặt Android (xem SettingsActivity, trang Bong bóng chat).
      */
     @android.annotation.TargetApi(30)
-    private static void addBubble(Context c, Notification.Builder b, String tag, String name, String body, Bitmap icon, int nid) {
+    private static void addBubble(Context c, Notification.Builder b, String tag, String name, String body, Bitmap icon, int nid,
+                                  boolean autoExpand, boolean suppress) {
         Icon personIcon = icon != null ? Icon.createWithAdaptiveBitmap(adaptive(icon))
                 : Icon.createWithResource(c, R.mipmap.ic_launcher);
         android.app.Person sender = new android.app.Person.Builder().setName(name).setIcon(personIcon)
@@ -297,9 +302,47 @@ final class Notifier {
                 PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         b.setBubbleMetadata(new Notification.BubbleMetadata.Builder(bubbleIntent, personIcon)
                 .setDesiredHeight(640)
-                .setAutoExpandBubble(Prefs.bubbleAutoExpand(c))
-                .setSuppressNotification(Prefs.bubbleHideNotif(c))
+                .setAutoExpandBubble(autoExpand)
+                .setSuppressNotification(suppress)
                 .build());
+    }
+
+    /**
+     * Vuốt app về màn hình chính khi đang mở một hội thoại (MainActivity.onUserLeaveHint): hiện ngay bong bóng của hội
+     * thoại đó để chat tiếp. Chỉ có bong bóng (không thêm thông báo, không kêu); bong bóng thu gọn, chạm để mở.
+     */
+    static void bubbleForConversation(Context c, String convId) {
+        if (Build.VERSION.SDK_INT < 30 || !Prefs.bubbleOnHome(c) || !wantBubble(c, convId)) return;
+        String[] info = convInfo.get(convId);
+        String name = info != null && !info[0].isEmpty() ? info[0] : c.getString(R.string.app_name);
+        String avatar = info != null ? info[1] : null;
+        String last = info != null && !info[2].isEmpty() ? info[2] : name;
+        int nid = idForTag(convId);
+        App.IO.execute(() -> {
+            Bitmap icon = loadIcon(avatar);
+            Intent open = new Intent(c, MainActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .putExtra(MainActivity.EXTRA_CONV, convId);
+            PendingIntent pi = PendingIntent.getActivity(c, nid, open,
+                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+            Notification.Builder b = new Notification.Builder(c, App.CH_MESSAGES_SILENT)
+                    .setSmallIcon(R.drawable.ic_stat_message)
+                    .setColor(ZALO_BLUE)
+                    .setContentTitle(name)
+                    .setContentText(last)
+                    .setCategory(Notification.CATEGORY_MESSAGE)
+                    .setOnlyAlertOnce(true)
+                    .setAutoCancel(true)
+                    .setContentIntent(pi);
+            if (icon != null) b.setLargeIcon(icon);
+            try {
+                addBubble(c, b, convId, name, last, icon, nid, false, true);
+                post(c, nid, b.build());
+                DiagLog.add("bubble for open conversation (app to home)");
+            } catch (RuntimeException e) {
+                Log.w(WebViewHolder.TAG, "home bubble", e);
+            }
+        });
     }
 
     /** Ảnh đại diện cho Icon "adaptive": thêm lề để vòng tròn không bị cắt mất khi hệ thống cắt theo khuôn. */

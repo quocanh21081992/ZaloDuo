@@ -235,6 +235,16 @@ public class MainActivity extends Activity {
         Notifier.cancelCallAlert(this);
     }
 
+    /** Người dùng tự rời app (vuốt / bấm Home, không phải bị app khác che): đang mở một hội thoại thì hiện bong bóng của nó. */
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        String conv = lastOpenedConv;
+        if (!isBubble() && WebViewHolder.mobileChatOpen && conv != null && !KeepAliveService.isMediaActive()) {
+            Notifier.bubbleForConversation(this, conv);
+        }
+    }
+
     @Override
     protected void onPause() {
         saveSnapshot();
