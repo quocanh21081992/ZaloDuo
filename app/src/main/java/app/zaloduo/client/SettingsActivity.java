@@ -38,7 +38,8 @@ public class SettingsActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        refreshStatus();
+        if (status != null) refreshStatus(); // chỉ trang chính có ô trạng thái
+        if (storageButton != null) storageButton.setText(storageLabel()); // vừa cấp quyền trong cài đặt hệ thống
     }
 
     /** Dòng trạng thái: phiên bản app, script trong trang Zalo có chạy không, đã nhận dạng bố cục chưa. */
@@ -65,6 +66,11 @@ public class SettingsActivity extends Activity {
         });
     }
 
+    /** Trang con (extra "page"): null = trang chính (trạng thái + danh sách mục). */
+    static final String EXTRA_PAGE = "page";
+    private static final String P_PERMS = "perms", P_CONN = "conn", P_CALLS = "calls", P_DISPLAY = "display", P_OTHER = "other",
+            P_BUBBLES = "bubbles";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -77,24 +83,132 @@ public class SettingsActivity extends Activity {
         scroll.addView(list);
         setContentView(scroll);
 
+        String page = getIntent().getStringExtra(EXTRA_PAGE);
+        if (page != null && getActionBar() != null) getActionBar().setDisplayHomeAsUpEnabled(true);
+        if (P_PERMS.equals(page)) { setTitle("Cấp quyền"); buildPermissions(); }
+        else if (P_CONN.equals(page)) { setTitle("Kết nối"); buildConnection(); }
+        else if (P_CALLS.equals(page)) { setTitle("Cuộc gọi"); buildCalls(); }
+        else if (P_DISPLAY.equals(page)) { setTitle("Giao diện"); buildDisplay(); }
+        else if (P_BUBBLES.equals(page)) { setTitle("Bong bóng chat"); buildBubbles(); }
+        else if (P_OTHER.equals(page)) { setTitle("Khác"); buildOther(); }
+        else buildMain();
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(android.view.MenuItem item) {
+        if (item.getItemId() == android.R.id.home) { finish(); return true; }
+        return super.onOptionsItemSelected(item);
+    }
+
+    /** Trang chính: trạng thái app + các mục, chạm để mở trang con. */
+    private void buildMain() {
         status = new TextView(this);
         status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         status.setPadding(dp(12), dp(10), dp(12), dp(10));
         status.setBackgroundColor(0xFFF1F4F8);
         list.addView(status);
+        list.addView(new View(this), new LinearLayout.LayoutParams(1, dp(8)));
+        navRow("Cấp quyền", "Thông báo, chạy nền không giới hạn pin, cuộc gọi khi khoá máy, lưu tệp", P_PERMS);
+        navRow("Kết nối", "Chạy nền, tự chạy khi khởi động, nhận cuộc gọi đến, giữ kết nối khi khoá máy", P_CONN);
+        navRow("Cuộc gọi", "Nhạc chuông, hồi chuông, ghi âm, thông số cuộc gọi", P_CALLS);
+        navRow("Giao diện", "Giao diện điện thoại, thanh dock, bề rộng trang, cỡ chữ", P_DISPLAY);
+        navRow("Bong bóng chat", "Tin nhắn mới hiện thành bong bóng nổi trên màn hình", P_BUBBLES);
+        navRow("Khác", "Ảnh/video đã lưu, tải lại Zalo, đăng xuất", P_OTHER);
+        note("Mẹo: nhấn giữ biểu tượng app để mở nhanh màn hình này.\n"
+                + "Phiên bản " + versionName());
+    }
 
-        header("Thông báo & chạy nền");
+    /** Một dòng của trang chính: tên mục (đậm), mô tả nhỏ, mũi tên; chạm mở trang con. */
+    private void navRow(String title, String sub, String page) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(4), dp(14), dp(4), dp(14));
+        TypedValue tv = new TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);
+        row.setBackgroundResource(tv.resourceId);
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setTextColor(0xFF1A1A1A);
+        texts.addView(t);
+        TextView s = new TextView(this);
+        s.setText(sub);
+        s.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        s.setTextColor(0xFF6B7280);
+        texts.addView(s);
+        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView arrow = new TextView(this);
+        arrow.setText("›");
+        arrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
+        arrow.setTextColor(0xFF9CA3AF);
+        arrow.setPadding(dp(12), 0, dp(4), 0);
+        row.addView(arrow);
+        row.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class).putExtra(EXTRA_PAGE, page)));
+        list.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        View line = new View(this);
+        line.setBackgroundColor(0xFFE5E7EB);
+        list.addView(line, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1));
+    }
+
+    /** Cấp quyền: các quyền / ngoại lệ hệ thống app cần (mỗi nút mở đúng trang cài đặt của Android). */
+    private void buildPermissions() {
+        button("Cài đặt thông báo của app", this::openNotificationSettings);
+        button("Cho phép chạy nền không giới hạn pin", () -> requestIgnoreBattery(this));
+        // Huawei / Honor: "không giới hạn pin" chưa đủ, quản lý khởi chạy vẫn đóng băng app ở nền — phải bật thủ công.
+        if (isHuawei()) button("Huawei: cho phép chạy nền (Quản lý khởi chạy)", this::openHuaweiLaunchManager);
+        // Màn hình cuộc gọi đến toàn màn hình khi khoá máy: Android 14+ có thể rút quyền này (chỉ để cho app gọi điện /
+        // báo thức); thiếu thì cuộc gọi đến chỉ hiện popup nhỏ, không bật màn hình.
+        if (android.os.Build.VERSION.SDK_INT >= 34) {
+            android.app.NotificationManager nm = getSystemService(android.app.NotificationManager.class);
+            boolean fsi = nm == null || nm.canUseFullScreenIntent();
+            button(fsi ? "Màn hình cuộc gọi đến khi khoá máy: đã cho phép" : "Cho phép hiện cuộc gọi đến toàn màn hình khi khoá máy",
+                    () -> safeStart(new Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                            android.net.Uri.parse("package:" + getPackageName()))));
+        }
+        storageButton = button(storageLabel(), this::askStorage);
+    }
+
+    /** Kết nối: giữ kết nối với Zalo để nhận tin nhắn / cuộc gọi khi không mở app. */
+    private void buildConnection() {
         toggle("Chạy nền để nhận tin nhắn", Prefs.KEEP_ALIVE, true, on -> {
             if (on) KeepAliveService.start(this);
             else KeepAliveService.stop(this);
         });
         toggle("Tự chạy khi khởi động máy", Prefs.START_ON_BOOT, true, null);
-        button("Cho phép chạy nền không giới hạn pin", () -> requestIgnoreBattery(this));
-        // Huawei / Honor: "không giới hạn pin" chưa đủ, quản lý khởi chạy vẫn đóng băng app ở nền — phải bật thủ công.
-        if (isHuawei()) button("Huawei: cho phép chạy nền (Quản lý khởi chạy)", this::openHuaweiLaunchManager);
-        button("Cài đặt thông báo của app", this::openNotificationSettings);
+        toggle("Nhận cuộc gọi đến (thử nghiệm: báo với máy chủ Zalo app là Zalo PC — có thể làm thoát Zalo PC khác của tài khoản này)",
+                Prefs.INCOMING_CALLS, true, on -> { if (on) CallManager.get().onPageLoaded(); });
+        toggle("Giữ kết nối khi khoá màn hình (để nhận cuộc gọi khi máy khoá — tốn pin hơn: máy bị đánh thức mỗi 2 phút. "
+                        + "Nên bật thêm \"Cho phép chạy nền không giới hạn pin\" ở trang Cấp quyền)",
+                Prefs.KEEP_ON_LOCK, false, on -> {
+                    if (on) {
+                        KeepAliveService.start(this);
+                        if (!isIgnoringBattery()) requestIgnoreBattery(this);
+                    }
+                });
+    }
 
-        header("Hiển thị");
+    private void buildCalls() {
+        toggle("Hiện thông số cuộc gọi (ping, tốc độ tiếng / hình) ở góc màn hình gọi", Prefs.CALL_STATS, true, null);
+        ringtoneButton = button(ringtoneLabel(), this::pickRingtone);
+        ringbackButton = button(ringbackLabel(), this::pickRingback);
+        dropdown("Tự động ghi âm cuộc gọi",
+                new String[]{"Tắt", "Mọi cuộc gọi", "Với người lạ", "Với người trong danh bạ"},
+                Prefs.autoRecord(this), v -> Prefs.sp(this).edit().putInt(Prefs.AUTO_RECORD, v).apply());
+        note("Ghi âm lưu tại " + Storage.base(this) + "/" + Storage.RECORDS
+                + (Storage.canWriteRoot(this) ? "" : " (cấp quyền ở trang Cấp quyền để lưu vào Bộ nhớ trong/ZaloDuo)") + ".");
+        button("Sao chép nhật ký cuộc gọi (gửi khi báo lỗi gọi)", () -> {
+            String log = CallEvents.dump();
+            ClipboardManager cm = getSystemService(ClipboardManager.class);
+            cm.setPrimaryClip(ClipData.newPlainText("ZaloDuo call log", log));
+            Toast.makeText(this, log.isEmpty() ? "Chưa có nhật ký cuộc gọi" : "Đã sao chép nhật ký cuộc gọi", Toast.LENGTH_LONG).show();
+        });
+    }
+
+    private void buildDisplay() {
         toggle("Giao diện điện thoại (danh sách chat → chạm để mở chat)", Prefs.MOBILE_UI, true,
                 on -> WebViewHolder.applySettings(true));
         dropdown("Giao diện (khi bật giao diện điện thoại)",
@@ -123,7 +237,37 @@ public class SettingsActivity extends Activity {
                         "85%", "100%", "115%", "130%"},
                 new int[]{0, 85, 100, 115, 130}, Prefs.TEXT_ZOOM, Prefs.textZoomSetting(this), false);
 
-        header("Khác");
+    }
+
+    /** Bong bóng chat (Android 11+): bật/tắt, cách hiện, quyền bong bóng của Android. */
+    private void buildBubbles() {
+        if (android.os.Build.VERSION.SDK_INT < 30) {
+            note("Bong bóng chat cần Android 11 trở lên.");
+            return;
+        }
+        toggle("Hiện tin nhắn mới dạng bong bóng chat", Prefs.BUBBLES, true, null);
+        dropdown("Hiện bong bóng cho", new String[]{"Mọi cuộc trò chuyện", "Chỉ chat 1-1", "Chỉ nhóm"},
+                Prefs.bubbleScope(this), v -> Prefs.put(this, Prefs.BUBBLE_SCOPE, v));
+        toggle("Tự mở khung chat khi có tin nhắn mới (không chỉ hiện bong bóng thu gọn)",
+                Prefs.BUBBLE_AUTO_EXPAND, false, null);
+        toggle("Ẩn thông báo trên thanh trạng thái khi đã hiện bong bóng", Prefs.BUBBLE_HIDE_NOTIF, false, null);
+        android.app.NotificationManager nm = getSystemService(android.app.NotificationManager.class);
+        boolean allowed;
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            allowed = nm.getBubblePreference() != android.app.NotificationManager.BUBBLE_PREFERENCE_NONE;
+        } else {
+            //noinspection deprecation
+            allowed = nm.areBubblesAllowed();
+        }
+        button(allowed ? "Bong bóng của app: đã cho phép (chạm để đổi)" : "Cho phép bong bóng của app trong cài đặt Android",
+                () -> safeStart(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_BUBBLE_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName())));
+        note("Android chỉ hiện bong bóng khi đã cho phép bong bóng cho app (nút trên). Chạm bong bóng để mở khung chat, "
+                + "kéo bong bóng xuống dấu X để đóng. Cài đặt áp dụng cho tin nhắn mới.");
+    }
+
+    /** Khác: dữ liệu đã lưu, tải lại, gỡ lỗi, đăng xuất. */
+    private void buildOther() {
         // Ảnh / video tin nhắn đã lưu trong máy (MediaCache): dung lượng + xoá.
         button("Xóa ảnh/video đã lưu", () -> new AlertDialog.Builder(this)
                 .setMessage("Xóa ảnh và video tin nhắn đã lưu trong máy? Lần sau xem lại sẽ phải tải lại.")
@@ -152,11 +296,14 @@ public class SettingsActivity extends Activity {
             });
         }
         button("Đăng xuất & xóa dữ liệu Zalo trong app", this::confirmReset);
-        note("Mẹo: nhấn giữ biểu tượng app để mở nhanh màn hình này.\n"
-                + "Phiên bản " + versionName());
     }
 
     // ------------------------------------------------------------------ hành động
+
+    private boolean isIgnoringBattery() {
+        android.os.PowerManager pm = getSystemService(android.os.PowerManager.class);
+        return pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
+    }
 
     static void requestIgnoreBattery(Context c) {
         try {
@@ -405,7 +552,116 @@ public class SettingsActivity extends Activity {
         });
     }
 
-    private void button(String label, final Runnable action) {
+    // ------------------------------------------------------------------ nhạc chuông cuộc gọi đến
+
+    private static final int REQ_RINGTONE = 77;
+    private Button ringtoneButton;
+
+    private String ringtoneLabel() {
+        android.net.Uri u = Prefs.ringtone(this);
+        String name;
+        if (u == null) name = "Im lặng (chỉ rung)";
+        else if (!Prefs.hasCustomRingtone(this)) name = "Mặc định của máy";
+        else {
+            android.media.Ringtone r = android.media.RingtoneManager.getRingtone(this, u);
+            name = r != null ? r.getTitle(this) : u.getLastPathSegment();
+        }
+        return "Nhạc chuông cuộc gọi đến: " + name;
+    }
+
+    private void pickRingtone() {
+        android.net.Uri cur = Prefs.ringtone(this);
+        android.content.Intent i = new android.content.Intent(android.media.RingtoneManager.ACTION_RINGTONE_PICKER)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TYPE, android.media.RingtoneManager.TYPE_RINGTONE)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TITLE, "Nhạc chuông cuộc gọi đến")
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI, android.provider.Settings.System.DEFAULT_RINGTONE_URI)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_EXISTING_URI,
+                        Prefs.hasCustomRingtone(this) ? cur : android.provider.Settings.System.DEFAULT_RINGTONE_URI);
+        try {
+            startActivityForResult(i, REQ_RINGTONE);
+        } catch (android.content.ActivityNotFoundException e) {
+            android.widget.Toast.makeText(this, "Máy không có trình chọn nhạc chuông", android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // ------------------------------------------------------------------ thư mục ZaloDuo (ghi âm, ảnh, video)
+
+    private Button storageButton;
+
+    private String storageLabel() {
+        if (Storage.canWriteRoot(this)) return "Ghi âm, ảnh, video lưu tại: Bộ nhớ trong/ZaloDuo";
+        if (android.os.Build.VERSION.SDK_INT == 29) return "Ghi âm, ảnh, video lưu tại: Download/ZaloDuo (Android 10)";
+        return "Cho phép lưu vào Bộ nhớ trong/ZaloDuo (đang lưu ở " + Storage.base(this) + ")";
+    }
+
+    /** Android 11+: trang "Truy cập mọi tệp" của app; Android 9 trở xuống: hỏi quyền bộ nhớ. */
+    private void askStorage() {
+        if (Storage.canWriteRoot(this) || android.os.Build.VERSION.SDK_INT == 29) return;
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            safeStart(new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    android.net.Uri.parse("package:" + getPackageName())));
+        } else {
+            requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE}, 79);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int req, String[] perms, int[] res) {
+        super.onRequestPermissionsResult(req, perms, res);
+        if (req == 79 && storageButton != null) storageButton.setText(storageLabel());
+    }
+
+    // ------------------------------------------------------------------ hồi chuông khi gọi đi
+
+    private static final int REQ_RINGBACK = 78;
+    private Button ringbackButton;
+
+    private String ringbackLabel() {
+        android.net.Uri u = Prefs.ringback(this);
+        String name;
+        if (u == null) name = "Im lặng";
+        else if (!Prefs.hasCustomRingback(this)) name = "Mặc định của app";
+        else {
+            android.media.Ringtone r = android.media.RingtoneManager.getRingtone(this, u);
+            name = r != null ? r.getTitle(this) : u.getLastPathSegment();
+        }
+        return "Hồi chuông khi gọi đi: " + name;
+    }
+
+    /** Trình chọn nhạc của máy (có "Thêm nhạc chuông" để chọn file riêng); mục "Mặc định" = hồi chuông của app. */
+    private void pickRingback() {
+        android.net.Uri def = Prefs.defaultRingback(this), cur = Prefs.ringback(this);
+        android.content.Intent i = new android.content.Intent(android.media.RingtoneManager.ACTION_RINGTONE_PICKER)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TYPE, android.media.RingtoneManager.TYPE_ALL)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TITLE, "Hồi chuông khi gọi đi")
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI, def)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, cur == null ? null : cur);
+        try {
+            startActivityForResult(i, REQ_RINGBACK);
+        } catch (android.content.ActivityNotFoundException e) {
+            android.widget.Toast.makeText(this, "Máy không có trình chọn nhạc chuông", android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, android.content.Intent data) {
+        super.onActivityResult(req, res, data);
+        if (res != RESULT_OK || data == null) return;
+        android.net.Uri u = data.getParcelableExtra(android.media.RingtoneManager.EXTRA_RINGTONE_PICKED_URI);
+        if (req == REQ_RINGTONE) {
+            Prefs.setRingtone(this, u);
+            if (ringtoneButton != null) ringtoneButton.setText(ringtoneLabel());
+        } else if (req == REQ_RINGBACK) {
+            Prefs.setRingback(this, u);
+            if (ringbackButton != null) ringbackButton.setText(ringbackLabel());
+        }
+    }
+
+    private Button button(String label, final Runnable action) {
         Button b = new Button(this);
         b.setText(label);
         b.setAllCaps(false);
@@ -414,6 +670,7 @@ public class SettingsActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = dp(4);
         list.addView(b, lp);
+        return b;
     }
 
     private void note(String text) {

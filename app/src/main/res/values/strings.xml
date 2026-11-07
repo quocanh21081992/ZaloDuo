@@ -37,6 +37,7 @@
 
     <string name="download_started">Đang tải: %1$s</string>
     <string name="download_saved">Đã lưu vào Download/Zalo: %1$s</string>
+    <string name="download_saved_at">Đã lưu: %1$s</string>
     <string name="download_failed">Không tải được tệp</string>
     <string name="download_need_permission">Cấp quyền bộ nhớ rồi bấm tải lại</string>
     <string name="no_app_to_open">Không có ứng dụng nào mở được liên kết này</string>

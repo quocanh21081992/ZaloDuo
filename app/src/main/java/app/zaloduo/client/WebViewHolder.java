@@ -110,7 +110,9 @@ final class WebViewHolder {
     }
 
     static void detach(MainActivity activity) {
-        if (host.get() == activity) host = new WeakReference<>(null);
+        // Màn khác (màn chính / bong bóng chat) đã lấy WebView: không gỡ của nó.
+        if (host.get() != activity) return;
+        host = new WeakReference<>(null);
         if (contextWrapper != null && contextWrapper.getBaseContext() == activity) {
             contextWrapper.setBaseContext(app);
         }

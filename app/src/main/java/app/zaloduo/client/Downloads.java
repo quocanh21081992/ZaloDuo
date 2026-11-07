@@ -25,7 +25,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 
-/** Tải tệp từ Zalo Web vào thư mục Download/Zalo. */
+/** Tải tệp từ Zalo Web: ảnh / video vào Bộ nhớ trong/ZaloDuo/pictures, /videos ({@link Storage}); tệp khác vào Download/Zalo. */
 final class Downloads {
     private Downloads() {}
 
@@ -55,6 +55,11 @@ final class Downloads {
     }
 
     static void enqueue(Context c, String url, String ua, String name, String mime) {
+        String kind = Storage.kindOf(mime, name);
+        if (kind != null) { // ảnh / video: tự tải về Bộ nhớ trong/ZaloDuo/pictures|videos
+            fetchToStorage(c, url, ua, sanitize(name), mime, kind);
+            return;
+        }
         if (Build.VERSION.SDK_INT < 29 && !hasLegacyStoragePermission(c)) {
             askStoragePermission(c);
             return;
@@ -76,10 +81,52 @@ final class Downloads {
         }
     }
 
+    /**
+     * Ảnh / video: DownloadManager không ghi được vào thư mục riêng ở gốc bộ nhớ, nên tự tải (kèm cookie đăng nhập của
+     * Zalo) rồi lưu qua {@link Storage}. Luồng nền.
+     */
+    private static void fetchToStorage(Context c, String url, String ua, String name, String mime, String kind) {
+        WebViewHolder.toast(c.getString(R.string.download_started, name));
+        String cookie = CookieManager.getInstance().getCookie(url);
+        App.IO.execute(() -> {
+            java.net.HttpURLConnection con = null;
+            try {
+                con = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                con.setInstanceFollowRedirects(true);
+                con.setConnectTimeout(15000);
+                con.setReadTimeout(30000);
+                if (cookie != null) con.setRequestProperty("Cookie", cookie);
+                con.setRequestProperty("User-Agent", ua != null ? ua : WebViewHolder.userAgent);
+                int code = con.getResponseCode();
+                if (code / 100 != 2) throw new IOException("HTTP " + code);
+                String type = mime != null && !mime.isEmpty() && !"application/octet-stream".equals(mime) ? mime : con.getContentType();
+                String where = Storage.save(c, kind, name, type, con.getInputStream());
+                WebViewHolder.toast(c.getString(R.string.download_saved_at, where));
+            } catch (Exception e) {
+                Log.w(WebViewHolder.TAG, "fetchToStorage", e);
+                WebViewHolder.toast(c.getString(R.string.download_failed));
+            } finally {
+                if (con != null) con.disconnect();
+            }
+        });
+    }
+
     /** Gọi từ luồng JS bridge với nội dung tệp dạng base64. */
     static void saveBase64(Context c, String name, String mime, String base64) {
         String fileName = sanitize(name);
         String type = (mime == null || mime.isEmpty()) ? "application/octet-stream" : mime;
+        String kind = Storage.kindOf(mime, fileName);
+        if (kind != null) { // ảnh / video: Bộ nhớ trong/ZaloDuo/pictures|videos
+            try {
+                String where = Storage.save(c, kind, fileName, type,
+                        new java.io.ByteArrayInputStream(Base64.decode(base64, Base64.DEFAULT)));
+                WebViewHolder.toast(c.getString(R.string.download_saved_at, where));
+            } catch (Exception e) {
+                Log.w(WebViewHolder.TAG, "saveBase64", e);
+                WebViewHolder.toast(c.getString(R.string.download_failed));
+            }
+            return;
+        }
         try {
             byte[] data = Base64.decode(base64, Base64.DEFAULT);
             if (Build.VERSION.SDK_INT >= 29) {
@@ -138,7 +185,7 @@ final class Downloads {
         return n;
     }
 
-    private static File unique(File dir, String name) {
+    static File unique(File dir, String name) {
         File f = new File(dir, name);
         if (!f.exists()) return f;
         int dot = name.lastIndexOf('.');

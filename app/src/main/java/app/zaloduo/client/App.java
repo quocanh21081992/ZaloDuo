@@ -4,6 +4,7 @@ import android.app.Application;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.content.Context;
 import android.media.AudioAttributes;
 import android.media.RingtoneManager;
 import android.os.Handler;
@@ -19,18 +20,29 @@ public class App extends Application {
     static final String CH_CALLS = "calls";
     static final String CH_CALLS_QUIET = "calls_quiet";
     static final String CH_SERVICE = "service";
+    static final String CH_CALL_ONGOING = "call_ongoing";
+    static final String CH_CALL_INCOMING = "call_incoming";
 
     static final Handler MAIN = new Handler(Looper.getMainLooper());
     static final ExecutorService IO = Executors.newFixedThreadPool(3);
 
     private static final long[] RING_VIBRATION = {0, 1000, 800, 1000, 800, 1000};
 
+    /** Context của ứng dụng (cho cuộc gọi đến khi chưa có màn hình nào). */
+    static Context ctx;
+
     @Override
     public void onCreate() {
         super.onCreate();
+        ctx = this;
         CrashLog.install(this);
         DiagLog.init(this);
+        CallEvents.init(this);
         DiagLog.sys("process start");
+        // Bản debug: cho Chrome DevTools soi trang Zalo Web (chrome://inspect). Bản release không bật.
+        if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+            android.webkit.WebView.setWebContentsDebuggingEnabled(true);
+        }
         createChannels();
     }
 
@@ -72,6 +84,20 @@ public class App extends Application {
         service.setDescription(getString(R.string.ch_service_desc));
         service.setShowBadge(false);
 
-        nm.createNotificationChannels(Arrays.asList(messages, silent, calls, callsQuiet, service));
+        // Cuộc gọi bằng app: popup khi đang gọi mà ra khỏi app (không chuông/rung); cuộc gọi đến (app tự đổ chuông
+        // lặp lại bằng nhạc chuông của máy, kênh chỉ rung).
+        NotificationChannel callOngoing = new NotificationChannel(
+                CH_CALL_ONGOING, "Cuộc gọi đang diễn ra", NotificationManager.IMPORTANCE_HIGH);
+        callOngoing.setSound(null, null);
+        callOngoing.enableVibration(false);
+        callOngoing.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+        NotificationChannel callIncoming = new NotificationChannel(
+                CH_CALL_INCOMING, "Cuộc gọi đến qua ZaloDuo", NotificationManager.IMPORTANCE_HIGH);
+        callIncoming.setSound(null, null);
+        callIncoming.enableVibration(true);
+        callIncoming.setVibrationPattern(RING_VIBRATION);
+        callIncoming.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+
+        nm.createNotificationChannels(Arrays.asList(messages, silent, calls, callsQuiet, service, callOngoing, callIncoming));
     }
 }

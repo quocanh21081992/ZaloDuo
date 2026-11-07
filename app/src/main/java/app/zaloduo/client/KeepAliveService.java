@@ -26,6 +26,15 @@ import android.util.Log;
 public class KeepAliveService extends Service {
     static final int NOTIF_ID = 1;
     static final String ACTION_SPEAKER = "app.zaloduo.client.SPEAKER";
+    static final String ACTION_HANGUP = "app.zaloduo.client.HANGUP";
+    static final String ACTION_MIC = "app.zaloduo.client.MIC";
+    static final String ACTION_ANSWER = "app.zaloduo.client.ANSWER";
+
+    /** Cuộc gọi của app đổi trạng thái / màn hình cuộc gọi ẩn-hiện: dựng lại thông báo. Gọi trên luồng chính. */
+    static void refreshNotification() {
+        KeepAliveService s = instance;
+        if (s != null) s.goForeground();
+    }
 
     // Chỉ truy cập trên luồng chính.
     private static KeepAliveService instance;
@@ -48,6 +57,10 @@ public class KeepAliveService extends Service {
         c.stopService(new Intent(c, KeepAliveService.class));
     }
 
+    static boolean isSpeakerOn() {
+        return speakerOn;
+    }
+
     static boolean isMediaActive() {
         return mediaActive;
     }
@@ -65,8 +78,12 @@ public class KeepAliveService extends Service {
                 WebViewHolder.wake("unlocked");
             } else if (Intent.ACTION_SCREEN_OFF.equals(a)) {
                 DiagLog.sys("screen off");
-                // Khoá máy: thôi giữ kết nối (không hẹn giờ đánh thức nữa), tới khi bật màn hình lại.
-                if (!mediaActive) {
+                // Khoá máy: thôi giữ kết nối (không hẹn giờ đánh thức nữa), tới khi bật màn hình lại — trừ khi người dùng
+                // bật "Giữ kết nối khi khoá màn hình" (để nhận cuộc gọi đến).
+                if (Prefs.keepOnLock(c)) {
+                    scheduleCheck(c, CHECK_LOCKED_MS);
+                    DiagLog.conn("screen locked: keep-alive continues (keep connection when locked)");
+                } else if (!mediaActive) {
                     cancelCheck(c);
                     if (checkLock != null && checkLock.isHeld()) checkLock.release();
                     DiagLog.conn("screen locked: keep-alive paused");
@@ -127,6 +144,9 @@ public class KeepAliveService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         goForeground();
         if (intent != null && ACTION_SPEAKER.equals(intent.getAction())) setSpeaker(this, !speakerOn);
+        if (intent != null && ACTION_HANGUP.equals(intent.getAction())) CallManager.get().hangup(null);
+        if (intent != null && ACTION_MIC.equals(intent.getAction())) CallManager.get().setMuted(!CallManager.get().muted());
+        if (intent != null && ACTION_ANSWER.equals(intent.getAction())) CallActivity.answerFromNotification(this);
         if (intent != null && ACTION_CHECK.equals(intent.getAction())) check();
         else scheduleCheck(this, CHECK_ON_MS);
         return START_STICKY;
@@ -157,30 +177,48 @@ public class KeepAliveService extends Service {
 
     // ------------------------------------------------------------------ foreground
 
+    /**
+     * Thông báo cuộc gọi của app dùng mã riêng: cập nhật cùng một mã từ dạng cuộc gọi (CallStyle, có "người") về dạng
+     * thường thì một số máy (Huawei) giữ tên người gọi làm tiêu đề thông báo chạy nền. Đổi mã khi vào/ra cuộc gọi.
+     */
+    static final int CALL_NOTIF_ID = 3;
+    private int fgId = NOTIF_ID;
+
     private void goForeground() {
         Notification n = buildNotification();
+        int id = CallManager.get().busy() && Build.VERSION.SDK_INT >= 31 ? CALL_NOTIF_ID : NOTIF_ID;
         if (Build.VERSION.SDK_INT >= 34) {
             int base = ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING;
             int media = mediaActive ? mediaTypes() : 0;
+            boolean done = false;
             if (media != 0) {
                 try {
-                    startForeground(NOTIF_ID, n, base | media);
-                    return;
+                    startForeground(id, n, base | media);
+                    done = true;
                 } catch (RuntimeException e) {
                     Log.w(WebViewHolder.TAG, "Cannot add microphone/camera type", e);
                 }
             }
-            try {
-                startForeground(NOTIF_ID, n, base);
-            } catch (RuntimeException e) {
-                giveUp(e);
+            if (!done) {
+                try {
+                    startForeground(id, n, base);
+                } catch (RuntimeException e) {
+                    giveUp(e);
+                    return;
+                }
             }
         } else {
             try {
-                startForeground(NOTIF_ID, n);
+                startForeground(id, n);
             } catch (RuntimeException e) {
                 giveUp(e);
+                return;
             }
+        }
+        if (id != fgId) {
+            // Thông báo của mã cũ không tự mất khi dịch vụ chuyển sang mã mới.
+            getSystemService(android.app.NotificationManager.class).cancel(fgId);
+            fgId = id;
         }
     }
 
@@ -206,8 +244,11 @@ public class KeepAliveService extends Service {
     }
 
     private Notification buildNotification() {
+        if (CallManager.get().busy() && Build.VERSION.SDK_INT >= 31) return CallNotify.build(this);
+        // Đang gọi bằng app (CallManager): bấm thông báo mở lại màn hình cuộc gọi.
+        Class<?> target = CallManager.get().busy() ? CallActivity.class : MainActivity.class;
         PendingIntent open = PendingIntent.getActivity(this, 100,
-                new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                new Intent(this, target).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         PendingIntent settings = PendingIntent.getActivity(this, 101,
                 new Intent(this, SettingsActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
@@ -221,7 +262,10 @@ public class KeepAliveService extends Service {
                 .setContentIntent(open)
                 .setOngoing(true)
                 .setShowWhen(false)
-                .setCategory(mediaActive ? Notification.CATEGORY_CALL : Notification.CATEGORY_SERVICE);
+                .setCategory(mediaActive ? Notification.CATEGORY_CALL : Notification.CATEGORY_SERVICE)
+                // Nhóm riêng: không có nhóm thì Android (EMUI…) tự gộp chung với thông báo tin nhắn / cuộc gọi, thẻ gộp
+                // thu gọn lấy tên người (vd. "Lê Dương") làm tiêu đề thay cho "ZaloDuo đang chạy nền".
+                .setGroup("zaloduo.service");
         if (mediaActive) {
             PendingIntent speaker = PendingIntent.getService(this, 102,
                     new Intent(this, KeepAliveService.class).setAction(ACTION_SPEAKER),
@@ -263,10 +307,18 @@ public class KeepAliveService extends Service {
         scheduleCheck(s, "on".equals(state) ? CHECK_ON_MS : CHECK_OFF_MS);
     }
 
-    /** Đang dùng máy (màn hình bật) hoặc đang gọi: chỉ khi đó mới giữ kết nối. */
+    /**
+     * Có giữ kết nối không: đang dùng máy (màn hình bật), đang gọi, hoặc người dùng bật "Giữ kết nối khi khoá màn hình"
+     * (để nhận cuộc gọi đến — tốn pin hơn vì máy bị đánh thức định kỳ).
+     */
     private static boolean inUse(Context c) {
         PowerManager pm = c.getSystemService(PowerManager.class);
-        return mediaActive || pm == null || pm.isInteractive();
+        return mediaActive || Prefs.keepOnLock(c) || pm == null || pm.isInteractive();
+    }
+
+    private static boolean locked(Context c) {
+        PowerManager pm = c.getSystemService(PowerManager.class);
+        return pm != null && !pm.isInteractive();
     }
 
     private static PendingIntent checkIntent(Context c) {
@@ -325,8 +377,13 @@ public class KeepAliveService extends Service {
         DiagLog.conn("alarm check, state=" + (conn.isEmpty() ? "?" : conn) + " | " + DiagLog.powerState(this));
         WebViewHolder.wake("alarm");
         WebViewHolder.evalMain("window.__zw&&window.__zw.connReport&&window.__zw.connReport()");
-        scheduleCheck(this, "on".equals(conn) ? CHECK_ON_MS : CHECK_OFF_MS);
+        // Khoá máy mà vẫn giữ kết nối: máy chủ ngắt socket im lặng sau ~8 phút (offline_timeout 480 s) và Zalo gửi nhịp
+        // 3 phút/lần, nên đánh thức mỗi 2 phút cho trang kịp gửi nhịp. Android có thể dồn hẹn giờ khi Doze sâu.
+        boolean lockedKeep = locked(this) && Prefs.keepOnLock(this) && !mediaActive;
+        scheduleCheck(this, lockedKeep ? CHECK_LOCKED_MS : "on".equals(conn) ? CHECK_ON_MS : CHECK_OFF_MS);
     }
+
+    private static final long CHECK_LOCKED_MS = 2 * 60 * 1000L;
 
     // ------------------------------------------------------------------ cuộc gọi
 
@@ -375,6 +432,7 @@ public class KeepAliveService extends Service {
             s.goForeground();
             s.updateProximity();
         }
+        if (changed) CallManager.get().refresh(); // nút Loa trên màn hình cuộc gọi
     }
 
     /** Gọi thoại (không video, không loa ngoài): áp tai vào thì tắt màn hình như app gọi thật. */

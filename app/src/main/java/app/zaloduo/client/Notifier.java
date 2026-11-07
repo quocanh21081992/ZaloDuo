@@ -70,6 +70,8 @@ final class Notifier {
         if (call) nid = CALL_ID;
         else if (tag != null && !tag.isEmpty()) nid = idForTag(tag);
         else nid = nextId();
+        // Danh sách chat có thể đã báo "còn chưa đọc" trước khi thông báo này tới (shim chỉ gửi khi danh sách đổi).
+        if (!call && tag != null && !tag.isEmpty()) shownConv.put(tag, Boolean.TRUE.equals(lastUnread.get(tag)));
         if (jsId != null) {
             if (idByJsId.size() > 500) idByJsId.clear();
             idByJsId.put(jsId, nid);
@@ -83,7 +85,7 @@ final class Notifier {
                 if (MainActivity.visible) return; // đang mở app thì giao diện Zalo tự hiện cuộc gọi
                 post(c, nid, buildCall(c, t, b, icon, true));
             } else {
-                post(c, nid, buildMessage(c, jsId, t, b, icon, silent, nid));
+                post(c, nid, buildMessage(c, jsId, t, b, icon, silent, nid, tag));
             }
         });
     }
@@ -122,20 +124,97 @@ final class Notifier {
     static void clearConversation(Context c, String convId) {
         if (convId == null || convId.isEmpty()) return;
         int nid = idForTag(convId);
-        nm(c).cancel(nid);
+        cancelKeepBubble(c, nid);
         idByJsId.values().removeIf(v -> v == nid);
+        shownConv.remove(convId);
+    }
+
+    /**
+     * Xoá thông báo của một hội thoại, trừ khi nó đang là bong bóng chat: huỷ thông báo thì bong bóng (có thể đang mở,
+     * chính là nơi người dùng đang đọc) cũng mất. Khi đó đăng lại thông báo đó ở dạng chỉ còn bong bóng, không kêu.
+     */
+    private static void cancelKeepBubble(Context c, int nid) {
+        if (Build.VERSION.SDK_INT >= 30) {
+            try {
+                for (StatusBarNotification sbn : nm(c).getActiveNotifications()) {
+                    if (sbn.getId() != nid) continue;
+                    Notification n = sbn.getNotification();
+                    Notification.BubbleMetadata bm = n.getBubbleMetadata();
+                    if (bm == null || (n.flags & Notification.FLAG_BUBBLE) == 0) break;
+                    if (bm.isNotificationSuppressed()) return; // đã chỉ còn bong bóng
+                    Notification.Builder b = Notification.Builder.recoverBuilder(c, n)
+                            .setOnlyAlertOnce(true)
+                            .setBubbleMetadata(copyBubble(bm, true));
+                    post(c, nid, b.build());
+                    return;
+                }
+            } catch (RuntimeException e) {
+                Log.w(WebViewHolder.TAG, "keep bubble", e);
+            }
+        }
+        nm(c).cancel(nid);
+    }
+
+    @android.annotation.TargetApi(30)
+    private static Notification.BubbleMetadata copyBubble(Notification.BubbleMetadata bm, boolean suppress) {
+        Notification.BubbleMetadata.Builder b = bm.getShortcutId() != null
+                ? new Notification.BubbleMetadata.Builder(bm.getShortcutId())
+                : new Notification.BubbleMetadata.Builder(bm.getIntent(), bm.getIcon());
+        if (bm.getDesiredHeight() > 0) b.setDesiredHeight(bm.getDesiredHeight());
+        return b.setAutoExpandBubble(false).setSuppressNotification(suppress).build();
+    }
+
+    /*
+     * Hội thoại đang có thông báo -> đã thấy nó "còn chưa đọc" trong danh sách chat sau khi báo chưa. Đọc ở máy khác
+     * (điện thoại, Zalo PC): Zalo Web nhận đồng bộ, số chưa đọc về 0 -> xoá thông báo. Phải thấy "còn chưa đọc" trước,
+     * vì danh sách cũ (chưa kịp tăng số chưa đọc) có thể tới ngay sau thông báo mới và làm xoá nhầm.
+     */
+    private static final java.util.Map<String, Boolean> shownConv = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Hội thoại là nhóm hay không (từ danh sách chat), để lọc bong bóng theo Cài đặt. */
+    private static final java.util.Map<String, Boolean> groupConv = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Trạng thái "còn chưa đọc" mới nhất của mỗi hội thoại trong danh sách chat. */
+    private static final java.util.Map<String, Boolean> lastUnread = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Danh sách chat mới (JsBridge.convList, JSON của shim mục 12): xoá thông báo của hội thoại đã đọc ở nơi khác. */
+    static void syncRead(Context c, String json) {
+        if (json == null) return;
+        try {
+            org.json.JSONArray a = new org.json.JSONArray(json);
+            for (int i = 0; i < a.length(); i++) {
+                org.json.JSONObject o = a.optJSONObject(i);
+                if (o == null) continue;
+                String id = o.optString("id");
+                boolean unread = o.optInt("u") > 0 || o.optInt("at") > 0 || o.optInt("ud") > 0;
+                lastUnread.put(id, unread);
+                groupConv.put(id, o.optBoolean("g"));
+                Boolean seenUnread = shownConv.get(id);
+                if (seenUnread == null) continue;
+                if (unread) {
+                    if (!seenUnread) shownConv.put(id, true);
+                } else if (seenUnread) {
+                    shownConv.remove(id);
+                    int nid = idForTag(id);
+                    cancelKeepBubble(c, nid);
+                    idByJsId.values().removeIf(v -> v == nid);
+                    DiagLog.add("notification cleared: conversation read on another device");
+                }
+            }
+        } catch (Exception e) {
+            Log.w(WebViewHolder.TAG, "syncRead", e);
+        }
     }
 
     static void clearMessages(Context c) {
         try {
             for (StatusBarNotification sbn : nm(c).getActiveNotifications()) {
                 int id = sbn.getId();
-                if (id != KeepAliveService.NOTIF_ID && id != CALL_ID) nm(c).cancel(sbn.getTag(), id);
+                if (id != KeepAliveService.NOTIF_ID && id != KeepAliveService.CALL_NOTIF_ID && id != CALL_ID) nm(c).cancel(sbn.getTag(), id);
             }
         } catch (RuntimeException e) {
             Log.w(WebViewHolder.TAG, "clearMessages", e);
         }
         idByJsId.values().removeIf(v -> v != CALL_ID);
+        shownConv.clear();
     }
 
     static void clearAll(Context c) {
@@ -146,7 +225,7 @@ final class Notifier {
     // ------------------------------------------------------------------ dựng thông báo
 
     private static Notification buildMessage(Context c, String jsId, String title, String body,
-                                             Bitmap icon, boolean silent, int nid) {
+                                             Bitmap icon, boolean silent, int nid, String tag) {
         Intent open = new Intent(c, MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 .putExtra(MainActivity.EXTRA_CLICK_ID, jsId);
@@ -164,7 +243,71 @@ final class Notifier {
                 .setAutoCancel(true)
                 .setContentIntent(pi);
         if (icon != null) b.setLargeIcon(icon);
+        if (Build.VERSION.SDK_INT >= 30 && wantBubble(c, tag)) {
+            try {
+                addBubble(c, b, tag, title.isEmpty() ? c.getString(R.string.app_name) : title, body, icon, nid);
+            } catch (RuntimeException e) {
+                Log.w(WebViewHolder.TAG, "bubble", e); // không làm hỏng thông báo thường
+            }
+        }
         return b.build();
+    }
+
+    // ------------------------------------------------------------------ bong bóng chat (Android 11+)
+
+    private static boolean wantBubble(Context c, String tag) {
+        if (tag == null || tag.isEmpty() || !Prefs.bubbles(c)) return false;
+        int scope = Prefs.bubbleScope(c);
+        if (scope == 0) return true;
+        Boolean g = groupConv.get(tag);
+        if (g == null) return true; // chưa biết là nhóm hay không: vẫn hiện
+        return scope == 1 ? !g : g;
+    }
+
+    /**
+     * Bong bóng cần: kiểu tin nhắn (MessagingStyle + Person), một lối tắt hội thoại "sống lâu" gắn với thông báo, và
+     * BubbleMetadata mở {@link BubbleActivity} (màn hình Zalo thu nhỏ, mở sẵn đúng hội thoại). Người dùng còn phải cho
+     * phép bong bóng của app trong Cài đặt Android (xem SettingsActivity, trang Bong bóng chat).
+     */
+    @android.annotation.TargetApi(30)
+    private static void addBubble(Context c, Notification.Builder b, String tag, String name, String body, Bitmap icon, int nid) {
+        Icon personIcon = icon != null ? Icon.createWithAdaptiveBitmap(adaptive(icon))
+                : Icon.createWithResource(c, R.mipmap.ic_launcher);
+        android.app.Person sender = new android.app.Person.Builder().setName(name).setIcon(personIcon)
+                .setKey(tag).setImportant(true).build();
+        android.app.Person me = new android.app.Person.Builder().setName("Bạn").build();
+        b.setStyle(new Notification.MessagingStyle(me)
+                .addMessage(body, System.currentTimeMillis(), sender));
+
+        String shortcutId = "conv_" + tag;
+        Intent open = BubbleActivity.intent(c, tag);
+        android.content.pm.ShortcutInfo si = new android.content.pm.ShortcutInfo.Builder(c, shortcutId)
+                .setShortLabel(name)
+                .setLongLived(true)
+                .setIcon(personIcon)
+                .setPerson(sender)
+                .setIntent(new Intent(open).setAction(Intent.ACTION_VIEW))
+                .setCategories(Collections.singleton("app.zaloduo.client.category.CONVERSATION"))
+                .build();
+        c.getSystemService(android.content.pm.ShortcutManager.class).pushDynamicShortcut(si);
+        b.setShortcutId(shortcutId);
+
+        // Bong bóng bắt buộc PendingIntent MUTABLE (hệ thống thêm thông tin khi mở trong bong bóng).
+        PendingIntent bubbleIntent = PendingIntent.getActivity(c, nid, open,
+                PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        b.setBubbleMetadata(new Notification.BubbleMetadata.Builder(bubbleIntent, personIcon)
+                .setDesiredHeight(640)
+                .setAutoExpandBubble(Prefs.bubbleAutoExpand(c))
+                .setSuppressNotification(Prefs.bubbleHideNotif(c))
+                .build());
+    }
+
+    /** Ảnh đại diện cho Icon "adaptive": thêm lề để vòng tròn không bị cắt mất khi hệ thống cắt theo khuôn. */
+    private static Bitmap adaptive(Bitmap src) {
+        int size = 216, inner = 144, off = (size - inner) / 2;
+        Bitmap out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        new Canvas(out).drawBitmap(Bitmap.createScaledBitmap(src, inner, inner, true), off, off, null);
+        return out;
     }
 
     private static Notification buildCall(Context c, String title, String body, Bitmap icon, boolean ring) {

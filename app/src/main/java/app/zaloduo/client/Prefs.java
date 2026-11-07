@@ -43,11 +43,88 @@ final class Prefs {
     /** Zalo Web không nghe gọi được: báo cuộc gọi đến (đổ chuông, toàn màn hình) đã bỏ. */
     static boolean callAlerts(Context c) { return false; }
 
+    static final String INCOMING_CALLS = "incoming_calls";
+    /** Nhận cuộc gọi đến bằng app: nâng phiên lên kiểu Zalo PC để máy chủ gửi lời mời (CallManager). */
+    static boolean incomingCalls(Context c) { return bool(c, INCOMING_CALLS, true); }
+
+    static final String CALL_STATS = "call_stats";
+    /** Hiện thông số cuộc gọi (ping, tốc độ tiếng/hình) ở góc màn hình cuộc gọi. */
+    static boolean callStats(Context c) { return bool(c, CALL_STATS, true); }
+
+    static final String KEEP_ON_LOCK = "keep_on_lock";
+    /** Giữ kết nối Zalo cả khi khoá màn hình (đánh thức máy mỗi 2 phút) — để nhận cuộc gọi đến; tốn pin hơn. */
+    static boolean keepOnLock(Context c) { return bool(c, KEEP_ON_LOCK, false); }
+
+    static final String RINGTONE = "call_ringtone";
+
+    /** Nhạc chuông cuộc gọi đến: chưa chọn = nhạc chuông mặc định của máy; chọn "Im lặng" = null (chỉ rung). */
+    static android.net.Uri ringtone(Context c) {
+        String s = sp(c).getString(RINGTONE, null);
+        if (s == null) return android.provider.Settings.System.DEFAULT_RINGTONE_URI;
+        return s.isEmpty() ? null : android.net.Uri.parse(s);
+    }
+
+    static boolean hasCustomRingtone(Context c) {
+        String s = sp(c).getString(RINGTONE, null);
+        return s != null && !s.isEmpty() && !android.provider.Settings.System.DEFAULT_RINGTONE_URI.toString().equals(s);
+    }
+
+    /** null = im lặng; Uri mặc định của hệ thống = theo máy. */
+    static void setRingtone(Context c, android.net.Uri u) {
+        if (u != null && android.provider.Settings.System.DEFAULT_RINGTONE_URI.equals(u)) sp(c).edit().remove(RINGTONE).apply();
+        else sp(c).edit().putString(RINGTONE, u == null ? "" : u.toString()).apply();
+    }
+
+    static final String AUTO_RECORD = "call_auto_record";
+    /** Tự động ghi âm cuộc gọi: 0 tắt, 1 mọi cuộc gọi, 2 với người lạ, 3 với người trong danh bạ (bạn bè Zalo). */
+    static int autoRecord(Context c) { return integer(c, AUTO_RECORD, 0); }
+
+    static final String RINGBACK = "call_ringback";
+
+    /** Hồi chuông có sẵn trong app (res/raw/ringback.mp3). */
+    static android.net.Uri defaultRingback(Context c) {
+        return android.net.Uri.parse("android.resource://" + c.getPackageName() + "/" + R.raw.ringback);
+    }
+
+    /** Hồi chuông khi gọi đi (máy bên kia đang đổ chuông): chưa chọn = hồi chuông của app; "Im lặng" = null. */
+    static android.net.Uri ringback(Context c) {
+        String s = sp(c).getString(RINGBACK, null);
+        if (s == null) return defaultRingback(c);
+        return s.isEmpty() ? null : android.net.Uri.parse(s);
+    }
+
+    static boolean hasCustomRingback(Context c) {
+        String s = sp(c).getString(RINGBACK, null);
+        return s != null && !s.isEmpty() && !defaultRingback(c).toString().equals(s);
+    }
+
+    /** null = im lặng; Uri hồi chuông của app = mặc định. */
+    static void setRingback(Context c, android.net.Uri u) {
+        if (u != null && defaultRingback(c).equals(u)) sp(c).edit().remove(RINGBACK).apply();
+        else sp(c).edit().putString(RINGBACK, u == null ? "" : u.toString()).apply();
+    }
+
     static final String DOCK_CLOUD = "dock_cloud", DOCK_TOOLS = "dock_tools";
     /** Nút zCloud / Công cụ của Zalo ở bên phải thanh dock (sau My Documents). */
     static boolean dockCloud(Context c) { return bool(c, DOCK_CLOUD, false); }
     static boolean dockTools(Context c) { return bool(c, DOCK_TOOLS, false); }
 
+
+    /** Bong bóng chat (Android 11+): tin nhắn mới của một hội thoại hiện thành bong bóng nổi trên màn hình. */
+    static final String BUBBLES = "bubbles";
+    static boolean bubbles(Context c) { return bool(c, BUBBLES, true); }
+
+    /** Tin nhắn mới tự bung bong bóng ra (mở khung chat ngay) thay vì chỉ hiện bong bóng thu gọn. */
+    static final String BUBBLE_AUTO_EXPAND = "bubble_auto_expand";
+    static boolean bubbleAutoExpand(Context c) { return bool(c, BUBBLE_AUTO_EXPAND, false); }
+
+    /** Đã có bong bóng thì không hiện thêm thông báo trên thanh trạng thái cho tin đó. */
+    static final String BUBBLE_HIDE_NOTIF = "bubble_hide_notif";
+    static boolean bubbleHideNotif(Context c) { return bool(c, BUBBLE_HIDE_NOTIF, false); }
+
+    /** Hiện bong bóng cho: 0 mọi hội thoại, 1 chỉ chat 1-1, 2 chỉ nhóm. */
+    static final String BUBBLE_SCOPE = "bubble_scope";
+    static int bubbleScope(Context c) { return integer(c, BUBBLE_SCOPE, 0); }
 
     /** Giao diện điện thoại: danh sách chat -> chạm mở chat -> Back quay lại. */
     static boolean mobileUi(Context c) { return bool(c, MOBILE_UI, true); }

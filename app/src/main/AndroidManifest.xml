@@ -16,6 +16,8 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Lưu ghi âm / ảnh / video vào Bộ nhớ trong/ZaloDuo (Android 11+: người dùng tự bật "Truy cập mọi tệp"). -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
@@ -49,12 +51,37 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <!-- Bong bóng chat (Android 11+): khung Zalo thu nhỏ mở sẵn một hội thoại, xem BubbleActivity. -->
+        <activity
+            android:name=".BubbleActivity"
+            android:exported="false"
+            android:allowEmbedded="true"
+            android:resizeableActivity="true"
+            android:documentLaunchMode="always"
+            android:label="@string/app_name"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:windowSoftInputMode="adjustResize" />
+
         <activity
             android:name=".SettingsActivity"
             android:screenOrientation="portrait"
             android:exported="true"
             android:label="@string/settings_title"
             android:theme="@style/SettingsTheme" />
+
+        <activity
+            android:name=".CallActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:launchMode="singleTop"
+            android:taskAffinity="app.zaloduo.client.call"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:label="Cuộc gọi"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
 
         <activity
             android:name=".CrashActivity"
