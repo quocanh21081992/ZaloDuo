@@ -169,6 +169,7 @@ final class JsBridge {
     public void convOpened(String t, final String convId) {
         if (!ok(t) || owner.popup || convId == null) return;
         Notifier.clearConversation(app, convId);
+        MainActivity.lastOpenedConv = convId;
     }
 
     /**

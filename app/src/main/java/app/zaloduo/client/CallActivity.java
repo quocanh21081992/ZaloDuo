@@ -818,7 +818,7 @@ public class CallActivity extends Activity implements CallManager.Listener {
                 CallManager.get().setCameraOn(!cv.cameraOn());
                 localView.setAlpha(cv.cameraOn() ? 1f : 0f);
             });
-        } else { // mời chuyển sang gọi video: chỉ bấm được khi đã nối máy (gọi 1-1)
+        } else if (CallManager.VOICE_TO_VIDEO) { // mời chuyển sang gọi video: chỉ bấm được khi đã nối máy (gọi 1-1)
             videoReqBtn = roundButton(row, new ImageView(this), R.drawable.zd_ic_video, btnBg, "Video", v -> {
                 CallManager m = CallManager.get();
                 if (m.state() != CallManager.State.CONNECTED || m.isGroup()) {
@@ -831,7 +831,6 @@ public class CallActivity extends Activity implements CallManager.Listener {
                 });
             });
         }
-        roundButton(row, new ImageView(this), R.drawable.zd_ic_call_end, RED, "Kết thúc", endClick); // ở giữa hàng
         micIcon = new ImageView(this);
         micBtn = roundButton(row, micIcon, R.drawable.zd_ic_mic, btnBg, "Mic",
                 v -> CallManager.get().setMuted(!CallManager.get().muted()));
@@ -844,6 +843,7 @@ public class CallActivity extends Activity implements CallManager.Listener {
             CallManager.get().toggleRecording();
         });
         recLabel = (TextView) ((LinearLayout) recBtn.getParent()).getChildAt(1);
+        roundButton(row, new ImageView(this), R.drawable.zd_ic_call_end, RED, "Kết thúc", endClick); // ngoài cùng bên phải
         root.addView(row, new LinearLayout.LayoutParams(-1, -2));
         normalRow = row;
 

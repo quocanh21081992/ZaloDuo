@@ -51,6 +51,17 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <!-- Bong bóng chat (Android 11+): khung Zalo thu nhỏ mở sẵn một hội thoại, xem BubbleActivity. -->
+        <activity
+            android:name=".BubbleActivity"
+            android:exported="false"
+            android:allowEmbedded="true"
+            android:resizeableActivity="true"
+            android:documentLaunchMode="always"
+            android:label="@string/app_name"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:windowSoftInputMode="adjustResize" />
+
         <activity
             android:name=".SettingsActivity"
             android:screenOrientation="portrait"

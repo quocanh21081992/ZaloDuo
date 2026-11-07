@@ -68,7 +68,8 @@ public class SettingsActivity extends Activity {
 
     /** Trang con (extra "page"): null = trang chính (trạng thái + danh sách mục). */
     static final String EXTRA_PAGE = "page";
-    private static final String P_PERMS = "perms", P_CONN = "conn", P_CALLS = "calls", P_DISPLAY = "display", P_OTHER = "other";
+    private static final String P_PERMS = "perms", P_CONN = "conn", P_CALLS = "calls", P_DISPLAY = "display", P_OTHER = "other",
+            P_BUBBLES = "bubbles";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -88,6 +89,7 @@ public class SettingsActivity extends Activity {
         else if (P_CONN.equals(page)) { setTitle("Kết nối"); buildConnection(); }
         else if (P_CALLS.equals(page)) { setTitle("Cuộc gọi"); buildCalls(); }
         else if (P_DISPLAY.equals(page)) { setTitle("Giao diện"); buildDisplay(); }
+        else if (P_BUBBLES.equals(page)) { setTitle("Bong bóng chat"); buildBubbles(); }
         else if (P_OTHER.equals(page)) { setTitle("Khác"); buildOther(); }
         else buildMain();
     }
@@ -110,6 +112,7 @@ public class SettingsActivity extends Activity {
         navRow("Kết nối", "Chạy nền, tự chạy khi khởi động, nhận cuộc gọi đến, giữ kết nối khi khoá máy", P_CONN);
         navRow("Cuộc gọi", "Nhạc chuông, hồi chuông, ghi âm, thông số cuộc gọi", P_CALLS);
         navRow("Giao diện", "Giao diện điện thoại, thanh dock, bề rộng trang, cỡ chữ", P_DISPLAY);
+        navRow("Bong bóng chat", "Tin nhắn mới hiện thành bong bóng nổi trên màn hình", P_BUBBLES);
         navRow("Khác", "Ảnh/video đã lưu, tải lại Zalo, đăng xuất", P_OTHER);
         note("Mẹo: nhấn giữ biểu tượng app để mở nhanh màn hình này.\n"
                 + "Phiên bản " + versionName());
@@ -234,6 +237,33 @@ public class SettingsActivity extends Activity {
                         "85%", "100%", "115%", "130%"},
                 new int[]{0, 85, 100, 115, 130}, Prefs.TEXT_ZOOM, Prefs.textZoomSetting(this), false);
 
+    }
+
+    /** Bong bóng chat (Android 11+): bật/tắt, cách hiện, quyền bong bóng của Android. */
+    private void buildBubbles() {
+        if (android.os.Build.VERSION.SDK_INT < 30) {
+            note("Bong bóng chat cần Android 11 trở lên.");
+            return;
+        }
+        toggle("Hiện tin nhắn mới dạng bong bóng chat", Prefs.BUBBLES, true, null);
+        dropdown("Hiện bong bóng cho", new String[]{"Mọi cuộc trò chuyện", "Chỉ chat 1-1", "Chỉ nhóm"},
+                Prefs.bubbleScope(this), v -> Prefs.put(this, Prefs.BUBBLE_SCOPE, v));
+        toggle("Tự mở khung chat khi có tin nhắn mới (không chỉ hiện bong bóng thu gọn)",
+                Prefs.BUBBLE_AUTO_EXPAND, false, null);
+        toggle("Ẩn thông báo trên thanh trạng thái khi đã hiện bong bóng", Prefs.BUBBLE_HIDE_NOTIF, false, null);
+        android.app.NotificationManager nm = getSystemService(android.app.NotificationManager.class);
+        boolean allowed;
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            allowed = nm.getBubblePreference() != android.app.NotificationManager.BUBBLE_PREFERENCE_NONE;
+        } else {
+            //noinspection deprecation
+            allowed = nm.areBubblesAllowed();
+        }
+        button(allowed ? "Bong bóng của app: đã cho phép (chạm để đổi)" : "Cho phép bong bóng của app trong cài đặt Android",
+                () -> safeStart(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_BUBBLE_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName())));
+        note("Android chỉ hiện bong bóng khi đã cho phép bong bóng cho app (nút trên). Chạm bong bóng để mở khung chat, "
+                + "kéo bong bóng xuống dấu X để đóng. Cài đặt áp dụng cho tin nhắn mới.");
     }
 
     /** Khác: dữ liệu đã lưu, tải lại, gỡ lỗi, đăng xuất. */

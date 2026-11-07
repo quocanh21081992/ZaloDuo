@@ -428,7 +428,7 @@ final class CallManager {
         if (isVideo) {
             startVideo(myGen, r);
             App.MAIN.post(() -> KeepAliveService.setSpeaker(app, true)); // gọi video: loa ngoài như Zalo
-        } else {
+        } else if (VOICE_TO_VIDEO) {
             // Gọi thoại: bên kia bật camera (gửi hình tới) = mời chuyển sang gọi video.
             r.setUnexpectedVideo(() -> onPeerCamera(myGen, true));
         }
@@ -481,6 +481,15 @@ final class CallManager {
 
     // ------------------------------------------------------------------ chuyển gọi thoại -> gọi video
 
+    /**
+     * Chuyển cuộc gọi thoại sang video (nút "Video" và lời mời từ bên kia). TẠM TẮT (2026-11-07): với Zalo điện thoại
+     * không chạy được. Zalo Android xin chuyển video bằng lệnh socket 412; máy chủ không chuyển lệnh này giữa điện thoại
+     * và phiên web/PC (điện thoại báo "Phiên bản của … chưa hỗ trợ tính năng chuyển video"), và
+     * /api/voicecall/requestaudio2video (12056, params {calleeId, callId}) luôn trả status 2, điện thoại không nhận gì.
+     * Muốn gọi video thì kết thúc rồi gọi video lại.
+     */
+    static final boolean VOICE_TO_VIDEO = false;
+
     /** Mình đã mời chuyển sang video (camera mình đã bật), chờ bên kia bật camera. */
     private boolean videoRequested;
     /** Bên kia mời chuyển sang video (bật camera / gửi hình tới) khi đang gọi thoại: màn hình hỏi Đồng ý / Từ chối. */
@@ -491,12 +500,18 @@ final class CallManager {
     synchronized boolean videoInvite() { return videoInvite; }
 
     /**
-     * Nút "Video" khi đang gọi thoại: bật camera của mình, gửi hình và báo "camera bật" (sendOnOffCamMic) — trên Zalo bên
-     * kia hiện lời mời bật camera. Bên kia bật camera ({@link #onPeerCamera}) thì coi là đồng ý: chuyển loa ngoài.
+     * Nút "Video" khi đang gọi thoại: báo "camera bật" (sendOnOffCamMic isOnCam=1) và xin chuyển video, nhưng CHƯA mở
+     * camera / bộ mã hoá hình. Bên kia bật camera hoặc gửi hình tới ({@link #onPeerCamera}) thì coi là đồng ý và mới bật
+     * đường hình. Thử với Zalo Android 26.10.02 (Huawei, 2026-11-07): điện thoại đang gọi thoại không mở nhánh nhận hình
+     * khi nhận onoff_camera; còn khi ZaloDuo chạy camera + bộ mã hoá hình, tiếng gửi đi tụt từ 50 xuống ~35 gói/giây và
+     * điện thoại tạm dừng tiếng 6–8 giây mỗi lần ("PLAY_POOR_SIGNAL").
      */
     void requestVideo() {
-        if (!switchToVideo(false)) return;
-        synchronized (this) { videoRequested = true; }
+        synchronized (this) {
+            if (state != State.CONNECTED || group || video != null || videoRequested || relay == null) return;
+            videoRequested = true;
+        }
+        sendMediaState();
         CallEvents.log("video upgrade: requested");
         notifyListener();
     }
@@ -537,12 +552,10 @@ final class CallManager {
     private void onPeerCamera(int myGen, boolean on) {
         boolean ask = false, accepted = false;
         synchronized (this) {
-            if (!current(myGen) || state != State.CONNECTED || group || !on) return;
+            if (!VOICE_TO_VIDEO || !current(myGen) || state != State.CONNECTED || group || !on) return;
             if (video == null) {
-                if (!videoInvite) { videoInvite = true; ask = true; }
-            } else if (videoRequested) {
-                videoRequested = false;
-                accepted = true;
+                if (videoRequested) { videoRequested = false; accepted = true; }
+                else if (!videoInvite) { videoInvite = true; ask = true; }
             }
         }
         if (ask) {
@@ -550,7 +563,7 @@ final class CallManager {
             notifyListener();
         } else if (accepted) {
             CallEvents.log("video upgrade: peer accepted");
-            App.MAIN.post(() -> KeepAliveService.setSpeaker(app, true)); // bên kia đồng ý: ra loa ngoài
+            switchToVideo(true); // bên kia đồng ý: bật camera, gửi hình, ra loa ngoài
             notifyListener();
         }
     }
@@ -854,7 +867,8 @@ final class CallManager {
     private void sendMediaState() {
         if (state != State.CONNECTED) return;
         CallVideo v = video();
-        int camOn = v != null && v.cameraOn() ? 1 : 0; // isOnCam: 1 = camera BẬT (ZaloCall.exe UiOnOffCameraEvent)
+        // isOnCam: 1 = camera BẬT (ZaloCall.exe UiOnOffCameraEvent). Đang mời chuyển video cũng báo bật (lời mời).
+        int camOn = (v != null && v.cameraOn()) || videoRequested() ? 1 : 0;
         int micOff = muted() ? 1 : 0;
         CallSignal.call("sendOnOffCamMic", new JSONArray().put(partnerId).put(callId).put(camOn).put(micOff).put(""),
                 (ok, body) -> { });

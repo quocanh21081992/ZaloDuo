@@ -110,6 +110,22 @@ final class Prefs {
     static boolean dockTools(Context c) { return bool(c, DOCK_TOOLS, false); }
 
 
+    /** Bong bóng chat (Android 11+): tin nhắn mới của một hội thoại hiện thành bong bóng nổi trên màn hình. */
+    static final String BUBBLES = "bubbles";
+    static boolean bubbles(Context c) { return bool(c, BUBBLES, true); }
+
+    /** Tin nhắn mới tự bung bong bóng ra (mở khung chat ngay) thay vì chỉ hiện bong bóng thu gọn. */
+    static final String BUBBLE_AUTO_EXPAND = "bubble_auto_expand";
+    static boolean bubbleAutoExpand(Context c) { return bool(c, BUBBLE_AUTO_EXPAND, false); }
+
+    /** Đã có bong bóng thì không hiện thêm thông báo trên thanh trạng thái cho tin đó. */
+    static final String BUBBLE_HIDE_NOTIF = "bubble_hide_notif";
+    static boolean bubbleHideNotif(Context c) { return bool(c, BUBBLE_HIDE_NOTIF, false); }
+
+    /** Hiện bong bóng cho: 0 mọi hội thoại, 1 chỉ chat 1-1, 2 chỉ nhóm. */
+    static final String BUBBLE_SCOPE = "bubble_scope";
+    static int bubbleScope(Context c) { return integer(c, BUBBLE_SCOPE, 0); }
+
     /** Giao diện điện thoại: danh sách chat -> chạm mở chat -> Back quay lại. */
     static boolean mobileUi(Context c) { return bool(c, MOBILE_UI, true); }
 
