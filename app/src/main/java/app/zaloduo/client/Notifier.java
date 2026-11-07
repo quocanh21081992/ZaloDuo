@@ -323,6 +323,8 @@ final class Notifier {
                     android.widget.Toast.LENGTH_LONG).show());
             return;
         }
+        MainActivity.popOutUntil = android.os.SystemClock.uptimeMillis() + 30_000; // bong bóng sắp bung ra được lấy trang (một lần)
+        MainActivity.popOutBusyUntil = android.os.SystemClock.uptimeMillis() + 8000; // màn chính không giành lại trang
         postConversationBubble(c, convId, true); // người dùng chủ động chọn: mở luôn khung chat trong bong bóng
     }
 
@@ -353,6 +355,8 @@ final class Notifier {
             try {
                 addBubble(c, b, convId, name, last, icon, nid, expand, true);
                 post(c, nid, b.build());
+                // "Đưa ra bong bóng chat": đăng xong (app còn ở trước, bong bóng được tự bung) thì màn chính lui xuống nền.
+                if (expand) MainActivity.popOutToBubble();
                 DiagLog.add("bubble for open conversation (app to home)");
             } catch (RuntimeException e) {
                 Log.w(WebViewHolder.TAG, "home bubble", e);

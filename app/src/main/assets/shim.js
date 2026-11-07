@@ -573,6 +573,10 @@
     }
     return '';
   }
+  /** Hội thoại đang mở toàn màn hình ('' = đang ở danh sách) — app hỏi khi chuyển bong bóng chat. */
+  api.currentConv = function () {
+    return safe(function () { return M.chat ? openConvId() : ''; }) || '';
+  };
   api.reportConv = function () {
     safe(function () {
       if (!M.chat || isHidden(document)) return;
