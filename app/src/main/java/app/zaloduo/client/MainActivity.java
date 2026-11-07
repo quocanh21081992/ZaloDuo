@@ -143,8 +143,6 @@ public class MainActivity extends Activity {
             nativeDock.setGlass(nativeList.dockGlass()); // kính mờ đi cùng dock (ẩn / hiện, trượt một lớp)
             nativeList.onOpen = nativeDock::hideForOpen;
         }
-        // Bong bóng mở ra trong lúc đang mở ZaloDuo: mở hội thoại ở màn chính, không lấy trang sang bong bóng.
-        if (handOffToMain(convFromIntent())) return;
         attachHere();
         if (!WebViewHolder.pageReady && Prefs.mobileUi(this)) showSnapshot();
 
@@ -187,6 +185,13 @@ public class MainActivity extends Activity {
             pageOnMain = false;
             mainReturnPending = true;
             mainReturnConv = WebViewHolder.mobileChatOpen ? lastOpenedConv : null;
+            // Màn chính đang hiện phía sau bong bóng: giữ nguyên hình của nó (ảnh chụp) thay vì để trống / chạy theo trang.
+            MainActivity m = visibleMain();
+            if (m != null) {
+                // Ảnh vừa chụp lúc màn chính bị che (onPause) thì dùng luôn; không thì chụp ngay (trước khi trang rời đi).
+                if (mainShot != null && android.os.SystemClock.uptimeMillis() - mainShotAt < 3000) m.showMainShot();
+                else m.captureMainShot(true);
+            }
         }
         WebViewHolder.attach(this);
         attachMain(WebViewHolder.get(this));
@@ -195,13 +200,7 @@ public class MainActivity extends Activity {
         if (bubbleConv != null) openConvWhenReady(bubbleConv, 0);
         if (!isBubble()) {
             pageOnMain = true;
-            if (openFromBubble != null) {
-                // Chạm bong bóng trong lúc đang mở ZaloDuo: mở hội thoại đó ngay ở màn chính.
-                mainReturnPending = false;
-                String c = openFromBubble;
-                openFromBubble = null;
-                openConvWhenReady(c, 0);
-            } else if (mainReturnPending) {
+            if (mainReturnPending) {
                 // Thu bong bóng về: màn chính trở lại đúng chỗ cũ, không nhảy vào hội thoại của bong bóng.
                 mainReturnPending = false;
                 String back = mainReturnConv;
@@ -209,9 +208,12 @@ public class MainActivity extends Activity {
                     ++openGen; // dừng lệnh mở hội thoại còn đang thử lại (nếu có)
                     WebViewHolder.mobileChatOpen = false;
                     WebViewHolder.evalMain("window.__zw&&window.__zw.mobileHome&&window.__zw.mobileHome()");
-                } else if (!back.equals(lastOpenedConv) || !WebViewHolder.mobileChatOpen) {
-                    openConvWhenReady(back, 0);
+                    App.MAIN.postDelayed(this::hideConvShot, 450); // ảnh chụp che tới khi trang về danh sách
+                } else {
+                    openConvWhenReady(back, 0); // ảnh chụp tự mờ đi khi trang mở xong đúng hội thoại
                 }
+            } else {
+                hideConvShot();
             }
         }
     }
@@ -231,8 +233,49 @@ public class MainActivity extends Activity {
         });
     }
 
-    /** Hội thoại cần mở ở màn chính (bong bóng được chạm trong lúc màn chính đang hiện). */
-    private static String openFromBubble;
+    /** Ảnh chụp màn chính lúc bị che (bong bóng bung ra): hiện thay trang khi trang đang ở bong bóng. */
+    private static Bitmap mainShot;
+    private static long mainShotAt;
+
+    /** Chụp màn chính (gọi lúc nó sắp bị che — onPause), khi trang còn đang gắn ở đây. */
+    private void captureMainShot() {
+        captureMainShot(false);
+    }
+
+    private void captureMainShot(boolean thenShow) {
+        if (isBubble() || WebViewHolder.host() != this || convShotView != null || root == null
+                || root.getWidth() == 0 || root.getHeight() == 0) return;
+        mainShotAt = android.os.SystemClock.uptimeMillis();
+        int[] loc = new int[2];
+        root.getLocationInWindow(loc);
+        final Bitmap bmp = Bitmap.createBitmap(root.getWidth(), root.getHeight(), Bitmap.Config.ARGB_8888);
+        try {
+            PixelCopy.request(getWindow(), new Rect(loc[0], loc[1], loc[0] + root.getWidth(), loc[1] + root.getHeight()), bmp,
+                    r -> {
+                        if (r != PixelCopy.SUCCESS) { bmp.recycle(); return; }
+                        mainShot = bmp;
+                        if (thenShow && WebViewHolder.host() != this) showMainShot();
+                    }, App.MAIN);
+        } catch (RuntimeException e) {
+            bmp.recycle();
+        }
+    }
+
+    /** Trang vừa sang bong bóng mà màn chính vẫn hiện phía sau: phủ ảnh chụp để màn chính trông y như cũ. */
+    private void showMainShot() {
+        Bitmap b = mainShot;
+        if (b == null || b.isRecycled() || root == null) return;
+        if (convShotView == null) {
+            convShotView = new ImageView(this);
+            convShotView.setScaleType(ImageView.ScaleType.FIT_START);
+            convShotView.setBackgroundColor(Prefs.barBottom(this));
+            root.addView(convShotView, match());
+        }
+        convShotView.animate().cancel();
+        convShotView.setAlpha(1f);
+        convShotView.setImageBitmap(b);
+        convShotView.setClickable(true); // trang đang ở bong bóng: chạm vào ảnh không làm gì
+    }
 
     /** Màn chính ZaloDuo đang hiện (không tính bong bóng). */
     private static MainActivity visibleMain() {
@@ -247,24 +290,6 @@ public class MainActivity extends Activity {
         String c = i.getStringExtra(EXTRA_CONV);
         if (c == null && i.getData() != null) c = i.getData().getLastPathSegment();
         return c;
-    }
-
-    /**
-     * Đang mở ZaloDuo mà chạm bong bóng: không chuyển trang sang bong bóng (màn chính sẽ "chạy theo" bong bóng) — mở hội
-     * thoại đó ở màn chính và đóng khung bong bóng. Trả về true nếu đã chuyển giao.
-     */
-    private boolean handOffToMain(String conv) {
-        if (!isBubble()) return false;
-        if (WebViewHolder.host() == this) return false; // bong bóng đã có trang
-        if (android.os.SystemClock.uptimeMillis() < popOutUntil) return false; // bong bóng vừa "Đưa ra": được lấy trang
-        MainActivity m = visibleMain();
-        if (m == null) return false;
-        if (conv != null) {
-            if (WebViewHolder.host() == m) m.openConvWhenReady(conv, 0);
-            else openFromBubble = conv;
-        }
-        finish();
-        return true;
     }
 
     /** Trang đang ở màn chính (không ở bong bóng). */
@@ -396,7 +421,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (handOffToMain(bubbleConv != null ? bubbleConv : convFromIntent())) return;
         reclaimWebView();
         // Đổi giao diện Native / WebView trong Cài đặt: dựng lại màn chính cho đúng (danh sách native có hay không).
         if ((Prefs.mobileUi(this) && Prefs.nativeList(this)) != (nativeList != null)) recreate();
@@ -465,6 +489,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         if (isBubble()) captureConvShot();
+        else captureMainShot();
         saveSnapshot();
         super.onPause();
     }
