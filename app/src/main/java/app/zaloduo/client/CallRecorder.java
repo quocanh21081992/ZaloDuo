@@ -51,9 +51,10 @@ final class CallRecorder {
 
     CallRecorder(Context c, String partner) {
         app = c.getApplicationContext();
-        String name = partner == null ? "" : partner.replaceAll("[\\\\/:*?\"<>|\\s]+", "_");
-        if (name.length() > 40) name = name.substring(0, 40);
-        title = "ZaloDuo_" + (name.isEmpty() ? "" : name + "_")
+        // Tên file: <Tên người gọi>_yyyyMMdd_HHmmss.m4a (giờ 24h). Bỏ ký tự cấm trong tên file khỏi tên người gọi.
+        String name = partner == null ? "" : partner.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]+", "_").trim();
+        if (name.length() > 60) name = name.substring(0, 60).trim();
+        title = (name.isEmpty() ? "ZaloDuo" : name) + "_"
                 + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()) + ".m4a";
         File dir = new File(app.getCacheDir(), "rec");
         //noinspection ResultOfMethodCallIgnored
