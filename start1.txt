@@ -1,0 +1,7 @@
+Starting: Intent { cmp=app.zaloduo.client/.MainActivity }
+Status: ok
+LaunchState: COLD
+Activity: app.zaloduo.client/.MainActivity
+TotalTime: 2223
+WaitTime: 2323
+Complete

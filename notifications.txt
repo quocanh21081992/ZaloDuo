@@ -1,0 +1,10 @@
+64:    NotificationRecord(0x075e7061: pkg=app.zaloduo.client user=UserHandle{0} id=1 tag=null importance=2 key=0|app.zaloduo.client|1|null|10145: Notification(channel=service shortcut=null contentView=null vibrate=null sound=null defaults=0x0 flags=0x62 color=0xff0068ff category=service groupKey=zaloduo.service actions=1 vis=PRIVATE))
+65-      uid=10145 userId=0
+66-      opPkg=app.zaloduo.client
+67:      icon=Icon(typ=RESOURCE pkg=app.zaloduo.client id=0x7f040005)
+68-      flags=0x62
+69-      pri=0
+70-      key=0|app.zaloduo.client|1|null|10145
+71-      seen=false
+72-      groupKey=0|app.zaloduo.client|g:zaloduo.service
+73-      notification=
