@@ -122,6 +122,10 @@ final class Prefs {
     static final String BUBBLE_HIDE_NOTIF = "bubble_hide_notif";
     static boolean bubbleHideNotif(Context c) { return bool(c, BUBBLE_HIDE_NOTIF, false); }
 
+    /** Vuốt app về màn hình chính khi đang mở một hội thoại: tự hiện bong bóng của hội thoại đó. */
+    static final String BUBBLE_ON_HOME = "bubble_on_home";
+    static boolean bubbleOnHome(Context c) { return bool(c, BUBBLE_ON_HOME, true); }
+
     /** Hiện bong bóng cho: 0 mọi hội thoại, 1 chỉ chat 1-1, 2 chỉ nhóm. */
     static final String BUBBLE_SCOPE = "bubble_scope";
     static int bubbleScope(Context c) { return integer(c, BUBBLE_SCOPE, 0); }

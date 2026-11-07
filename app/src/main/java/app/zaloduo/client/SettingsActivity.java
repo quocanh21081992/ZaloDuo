@@ -251,6 +251,8 @@ public class SettingsActivity extends Activity {
         toggle("Tự mở khung chat khi có tin nhắn mới (không chỉ hiện bong bóng thu gọn)",
                 Prefs.BUBBLE_AUTO_EXPAND, false, null);
         toggle("Ẩn thông báo trên thanh trạng thái khi đã hiện bong bóng", Prefs.BUBBLE_HIDE_NOTIF, false, null);
+        toggle("Vuốt app về màn hình chính khi đang chat: tự hiện bong bóng của cuộc trò chuyện đó",
+                Prefs.BUBBLE_ON_HOME, true, null);
         android.app.NotificationManager nm = getSystemService(android.app.NotificationManager.class);
         boolean allowed;
         if (android.os.Build.VERSION.SDK_INT >= 31) {
