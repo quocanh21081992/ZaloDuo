@@ -38,7 +38,7 @@ public class SettingsActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        refreshStatus();
+        if (status != null) refreshStatus(); // chỉ trang chính có ô trạng thái
         if (storageButton != null) storageButton.setText(storageLabel()); // vừa cấp quyền trong cài đặt hệ thống
     }
 
@@ -66,6 +66,10 @@ public class SettingsActivity extends Activity {
         });
     }
 
+    /** Trang con (extra "page"): null = trang chính (trạng thái + danh sách mục). */
+    static final String EXTRA_PAGE = "page";
+    private static final String P_PERMS = "perms", P_CONN = "conn", P_CALLS = "calls", P_DISPLAY = "display", P_OTHER = "other";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -78,34 +82,81 @@ public class SettingsActivity extends Activity {
         scroll.addView(list);
         setContentView(scroll);
 
+        String page = getIntent().getStringExtra(EXTRA_PAGE);
+        if (page != null && getActionBar() != null) getActionBar().setDisplayHomeAsUpEnabled(true);
+        if (P_PERMS.equals(page)) { setTitle("Cấp quyền"); buildPermissions(); }
+        else if (P_CONN.equals(page)) { setTitle("Kết nối"); buildConnection(); }
+        else if (P_CALLS.equals(page)) { setTitle("Cuộc gọi"); buildCalls(); }
+        else if (P_DISPLAY.equals(page)) { setTitle("Giao diện"); buildDisplay(); }
+        else if (P_OTHER.equals(page)) { setTitle("Khác"); buildOther(); }
+        else buildMain();
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(android.view.MenuItem item) {
+        if (item.getItemId() == android.R.id.home) { finish(); return true; }
+        return super.onOptionsItemSelected(item);
+    }
+
+    /** Trang chính: trạng thái app + các mục, chạm để mở trang con. */
+    private void buildMain() {
         status = new TextView(this);
         status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         status.setPadding(dp(12), dp(10), dp(12), dp(10));
         status.setBackgroundColor(0xFFF1F4F8);
         list.addView(status);
+        list.addView(new View(this), new LinearLayout.LayoutParams(1, dp(8)));
+        navRow("Cấp quyền", "Thông báo, chạy nền không giới hạn pin, cuộc gọi khi khoá máy, lưu tệp", P_PERMS);
+        navRow("Kết nối", "Chạy nền, tự chạy khi khởi động, nhận cuộc gọi đến, giữ kết nối khi khoá máy", P_CONN);
+        navRow("Cuộc gọi", "Nhạc chuông, hồi chuông, ghi âm, thông số cuộc gọi", P_CALLS);
+        navRow("Giao diện", "Giao diện điện thoại, thanh dock, bề rộng trang, cỡ chữ", P_DISPLAY);
+        navRow("Khác", "Ảnh/video đã lưu, tải lại Zalo, đăng xuất", P_OTHER);
+        note("Mẹo: nhấn giữ biểu tượng app để mở nhanh màn hình này.\n"
+                + "Phiên bản " + versionName());
+    }
 
-        header("Thông báo & chạy nền");
-        toggle("Chạy nền để nhận tin nhắn", Prefs.KEEP_ALIVE, true, on -> {
-            if (on) KeepAliveService.start(this);
-            else KeepAliveService.stop(this);
-        });
-        toggle("Tự chạy khi khởi động máy", Prefs.START_ON_BOOT, true, null);
+    /** Một dòng của trang chính: tên mục (đậm), mô tả nhỏ, mũi tên; chạm mở trang con. */
+    private void navRow(String title, String sub, String page) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(4), dp(14), dp(4), dp(14));
+        TypedValue tv = new TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);
+        row.setBackgroundResource(tv.resourceId);
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setTextColor(0xFF1A1A1A);
+        texts.addView(t);
+        TextView s = new TextView(this);
+        s.setText(sub);
+        s.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        s.setTextColor(0xFF6B7280);
+        texts.addView(s);
+        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView arrow = new TextView(this);
+        arrow.setText("›");
+        arrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
+        arrow.setTextColor(0xFF9CA3AF);
+        arrow.setPadding(dp(12), 0, dp(4), 0);
+        row.addView(arrow);
+        row.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class).putExtra(EXTRA_PAGE, page)));
+        list.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        View line = new View(this);
+        line.setBackgroundColor(0xFFE5E7EB);
+        list.addView(line, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1));
+    }
+
+    /** Cấp quyền: các quyền / ngoại lệ hệ thống app cần (mỗi nút mở đúng trang cài đặt của Android). */
+    private void buildPermissions() {
+        button("Cài đặt thông báo của app", this::openNotificationSettings);
         button("Cho phép chạy nền không giới hạn pin", () -> requestIgnoreBattery(this));
         // Huawei / Honor: "không giới hạn pin" chưa đủ, quản lý khởi chạy vẫn đóng băng app ở nền — phải bật thủ công.
         if (isHuawei()) button("Huawei: cho phép chạy nền (Quản lý khởi chạy)", this::openHuaweiLaunchManager);
-        button("Cài đặt thông báo của app", this::openNotificationSettings);
-
-        header("Cuộc gọi");
-        toggle("Nhận cuộc gọi đến (thử nghiệm: báo với máy chủ Zalo app là Zalo PC — có thể làm thoát Zalo PC khác của tài khoản này)",
-                Prefs.INCOMING_CALLS, true, on -> { if (on) CallManager.get().onPageLoaded(); });
-        toggle("Giữ kết nối khi khoá màn hình (để nhận cuộc gọi khi máy khoá — tốn pin hơn: máy bị đánh thức mỗi 2 phút. "
-                        + "Nên bật thêm \"Cho phép chạy nền không giới hạn pin\")",
-                Prefs.KEEP_ON_LOCK, false, on -> {
-                    if (on) {
-                        KeepAliveService.start(this);
-                        if (!isIgnoringBattery()) requestIgnoreBattery(this);
-                    }
-                });
         // Màn hình cuộc gọi đến toàn màn hình khi khoá máy: Android 14+ có thể rút quyền này (chỉ để cho app gọi điện /
         // báo thức); thiếu thì cuộc gọi đến chỉ hiện popup nhỏ, không bật màn hình.
         if (android.os.Build.VERSION.SDK_INT >= 34) {
@@ -115,21 +166,46 @@ public class SettingsActivity extends Activity {
                     () -> safeStart(new Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
                             android.net.Uri.parse("package:" + getPackageName()))));
         }
+        storageButton = button(storageLabel(), this::askStorage);
+    }
+
+    /** Kết nối: giữ kết nối với Zalo để nhận tin nhắn / cuộc gọi khi không mở app. */
+    private void buildConnection() {
+        toggle("Chạy nền để nhận tin nhắn", Prefs.KEEP_ALIVE, true, on -> {
+            if (on) KeepAliveService.start(this);
+            else KeepAliveService.stop(this);
+        });
+        toggle("Tự chạy khi khởi động máy", Prefs.START_ON_BOOT, true, null);
+        toggle("Nhận cuộc gọi đến (thử nghiệm: báo với máy chủ Zalo app là Zalo PC — có thể làm thoát Zalo PC khác của tài khoản này)",
+                Prefs.INCOMING_CALLS, true, on -> { if (on) CallManager.get().onPageLoaded(); });
+        toggle("Giữ kết nối khi khoá màn hình (để nhận cuộc gọi khi máy khoá — tốn pin hơn: máy bị đánh thức mỗi 2 phút. "
+                        + "Nên bật thêm \"Cho phép chạy nền không giới hạn pin\" ở trang Cấp quyền)",
+                Prefs.KEEP_ON_LOCK, false, on -> {
+                    if (on) {
+                        KeepAliveService.start(this);
+                        if (!isIgnoringBattery()) requestIgnoreBattery(this);
+                    }
+                });
+    }
+
+    private void buildCalls() {
         toggle("Hiện thông số cuộc gọi (ping, tốc độ tiếng / hình) ở góc màn hình gọi", Prefs.CALL_STATS, true, null);
         ringtoneButton = button(ringtoneLabel(), this::pickRingtone);
         ringbackButton = button(ringbackLabel(), this::pickRingback);
         dropdown("Tự động ghi âm cuộc gọi",
                 new String[]{"Tắt", "Mọi cuộc gọi", "Với người lạ", "Với người trong danh bạ"},
                 Prefs.autoRecord(this), v -> Prefs.sp(this).edit().putInt(Prefs.AUTO_RECORD, v).apply());
-        storageButton = button(storageLabel(), this::askStorage);
+        note("Ghi âm lưu tại " + Storage.base(this) + "/" + Storage.RECORDS
+                + (Storage.canWriteRoot(this) ? "" : " (cấp quyền ở trang Cấp quyền để lưu vào Bộ nhớ trong/ZaloDuo)") + ".");
         button("Sao chép nhật ký cuộc gọi (gửi khi báo lỗi gọi)", () -> {
             String log = CallEvents.dump();
             ClipboardManager cm = getSystemService(ClipboardManager.class);
             cm.setPrimaryClip(ClipData.newPlainText("ZaloDuo call log", log));
             Toast.makeText(this, log.isEmpty() ? "Chưa có nhật ký cuộc gọi" : "Đã sao chép nhật ký cuộc gọi", Toast.LENGTH_LONG).show();
         });
+    }
 
-        header("Hiển thị");
+    private void buildDisplay() {
         toggle("Giao diện điện thoại (danh sách chat → chạm để mở chat)", Prefs.MOBILE_UI, true,
                 on -> WebViewHolder.applySettings(true));
         dropdown("Giao diện (khi bật giao diện điện thoại)",
@@ -158,7 +234,10 @@ public class SettingsActivity extends Activity {
                         "85%", "100%", "115%", "130%"},
                 new int[]{0, 85, 100, 115, 130}, Prefs.TEXT_ZOOM, Prefs.textZoomSetting(this), false);
 
-        header("Khác");
+    }
+
+    /** Khác: dữ liệu đã lưu, tải lại, gỡ lỗi, đăng xuất. */
+    private void buildOther() {
         // Ảnh / video tin nhắn đã lưu trong máy (MediaCache): dung lượng + xoá.
         button("Xóa ảnh/video đã lưu", () -> new AlertDialog.Builder(this)
                 .setMessage("Xóa ảnh và video tin nhắn đã lưu trong máy? Lần sau xem lại sẽ phải tải lại.")
@@ -187,8 +266,6 @@ public class SettingsActivity extends Activity {
             });
         }
         button("Đăng xuất & xóa dữ liệu Zalo trong app", this::confirmReset);
-        note("Mẹo: nhấn giữ biểu tượng app để mở nhanh màn hình này.\n"
-                + "Phiên bản " + versionName());
     }
 
     // ------------------------------------------------------------------ hành động
