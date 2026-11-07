@@ -246,9 +246,7 @@ final class Notifier {
                 .setAutoCancel(true)
                 .setContentIntent(pi);
         if (icon != null) b.setLargeIcon(icon);
-        if (wantBubble(c, tag) && ChatHead.preferred(c)) {
-            ChatHead.show(c, tag, title, icon); // máy không hiện bong bóng của Android: bong bóng tự vẽ
-        } else if (Build.VERSION.SDK_INT >= 30 && wantBubble(c, tag)) {
+        if (Build.VERSION.SDK_INT >= 30 && wantBubble(c, tag)) {
             try {
                 addBubble(c, b, tag, title.isEmpty() ? c.getString(R.string.app_name) : title, body, icon, nid,
                         Prefs.bubbleAutoExpand(c), Prefs.bubbleHideNotif(c));
@@ -278,8 +276,7 @@ final class Notifier {
     @android.annotation.TargetApi(30)
     private static void addBubble(Context c, Notification.Builder b, String tag, String name, String body, Bitmap icon, int nid,
                                   boolean autoExpand, boolean suppress) {
-        Icon personIcon = icon != null ? Icon.createWithAdaptiveBitmap(adaptive(icon))
-                : Icon.createWithResource(c, R.mipmap.ic_launcher);
+        Icon personIcon = Icon.createWithAdaptiveBitmap(adaptive(icon, name));
         android.app.Person sender = new android.app.Person.Builder().setName(name).setIcon(personIcon)
                 .setKey(tag).setImportant(true).build();
         android.app.Person me = new android.app.Person.Builder().setName("Bạn").build();
@@ -315,8 +312,7 @@ final class Notifier {
      */
     static void bubbleForConversation(Context c, String convId) {
         if (!Prefs.bubbleOnHome(c) || !wantBubble(c, convId)) return;
-        boolean head = ChatHead.preferred(c);
-        if (!head && Build.VERSION.SDK_INT < 30) return;
+        if (Build.VERSION.SDK_INT < 30) return;
         String[] info = convInfo.get(convId);
         String name = info != null && !info[0].isEmpty() ? info[0] : c.getString(R.string.app_name);
         String avatar = info != null ? info[1] : null;
@@ -324,16 +320,12 @@ final class Notifier {
         int nid = idForTag(convId);
         App.IO.execute(() -> {
             Bitmap icon = loadIcon(avatar);
-            if (head) {
-                ChatHead.show(c, convId, name, icon, true);
-                return;
-            }
             Intent open = new Intent(c, MainActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     .putExtra(MainActivity.EXTRA_CONV, convId);
             PendingIntent pi = PendingIntent.getActivity(c, nid, open,
                     PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-            Notification.Builder b = new Notification.Builder(c, App.CH_MESSAGES_SILENT)
+            Notification.Builder b = new Notification.Builder(c, App.CH_BUBBLE)
                     .setSmallIcon(R.drawable.ic_stat_message)
                     .setColor(ZALO_BLUE)
                     .setContentTitle(name)
@@ -353,11 +345,29 @@ final class Notifier {
         });
     }
 
-    /** Ảnh đại diện cho Icon "adaptive": thêm lề để vòng tròn không bị cắt mất khi hệ thống cắt theo khuôn. */
-    private static Bitmap adaptive(Bitmap src) {
-        int size = 216, inner = 144, off = (size - inner) / 2;
+    /**
+     * Icon "adaptive" của bong bóng: hệ thống cắt lấy vùng giữa (2/3) theo khuôn tròn. Ảnh phải phủ kín cả khung, không
+     * chừa phần trong suốt — Huawei tô phần trong suốt thành nền đen vuông. Nền xanh Zalo, ảnh đại diện phủ kín; không có
+     * ảnh thì chữ cái đầu của tên.
+     */
+    private static Bitmap adaptive(Bitmap src, String name) {
+        int size = 216;
         Bitmap out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        new Canvas(out).drawBitmap(Bitmap.createScaledBitmap(src, inner, inner, true), off, off, null);
+        Canvas cv = new Canvas(out);
+        cv.drawColor(ZALO_BLUE);
+        if (src != null) {
+            cv.drawBitmap(Bitmap.createScaledBitmap(src, size, size, true), 0, 0, null);
+        } else {
+            Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+            p.setColor(0xFFFFFFFF);
+            p.setTextSize(64);
+            p.setTextAlign(Paint.Align.CENTER);
+            p.setFakeBoldText(true);
+            String n = name == null || name.trim().isEmpty() ? "Z" : name.trim();
+            String letter = n.substring(0, n.offsetByCodePoints(0, 1)).toUpperCase();
+            Paint.FontMetrics fm = p.getFontMetrics();
+            cv.drawText(letter, size / 2f, size / 2f - (fm.ascent + fm.descent) / 2, p);
+        }
         return out;
     }
 

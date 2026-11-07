@@ -170,7 +170,7 @@ public class SettingsActivity extends Activity {
                             android.net.Uri.parse("package:" + getPackageName()))));
         }
         // Bong bóng chat tự vẽ (Huawei / Android < 11) cần quyền hiển thị trên ứng dụng khác.
-        button(ChatHead.canDraw(this) ? "Hiển thị trên ứng dụng khác (bong bóng chat): đã cho phép"
+        button(android.provider.Settings.canDrawOverlays(this) ? "Hiển thị trên ứng dụng khác (bong bóng chat): đã cho phép"
                         : "Cho phép hiển thị trên ứng dụng khác (bong bóng chat)",
                 () -> safeStart(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         android.net.Uri.parse("package:" + getPackageName()))));
@@ -247,33 +247,12 @@ public class SettingsActivity extends Activity {
     /** Bong bóng chat (Android 11+): bật/tắt, cách hiện, quyền bong bóng của Android. */
     private void buildBubbles() {
         toggle("Hiện tin nhắn mới dạng bong bóng chat", Prefs.BUBBLES, true, null);
-        dropdown("Kiểu bong bóng",
-                new String[]{"Tự động (Huawei / Honor / Android dưới 11: nổi trên ứng dụng khác)",
-                        "Bong bóng của Android (Android 11+)", "Nổi trên ứng dụng khác (cần cấp quyền)"},
-                Prefs.bubbleMode(this), v -> {
-                    Prefs.put(this, Prefs.BUBBLE_MODE, v);
-                    recreate(); // hiện / ẩn nút quyền tương ứng
-                });
-        if (ChatHead.preferred(this)) {
-            boolean ok = ChatHead.canDraw(this);
-            button(ok ? "Hiển thị trên ứng dụng khác: đã cho phép" : "Cho phép hiển thị trên ứng dụng khác (bắt buộc)",
-                    () -> safeStart(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            android.net.Uri.parse("package:" + getPackageName()))));
-            if (isHuawei()) note("Huawei: nếu vẫn không thấy bong bóng, vào Cài đặt → Ứng dụng → ZaloDuo → bật "
-                    + "\"Hiển thị trên ứng dụng khác\" / \"Cửa sổ nổi\".");
+        if (android.os.Build.VERSION.SDK_INT < 30) {
+            note("Bong bóng chat cần Android 11 trở lên.");
+            return;
         }
         toggle("Vuốt app về màn hình chính khi đang chat: tự hiện bong bóng của cuộc trò chuyện đó",
                 Prefs.BUBBLE_ON_HOME, true, null);
-        if (ChatHead.preferred(this)) {
-            dropdown("Hiện bong bóng cho", new String[]{"Mọi cuộc trò chuyện", "Chỉ chat 1-1", "Chỉ nhóm"},
-                    Prefs.bubbleScope(this), v -> Prefs.put(this, Prefs.BUBBLE_SCOPE, v));
-            note("Chạm bong bóng để mở cuộc trò chuyện, kéo để di chuyển, kéo xuống dấu ✕ ở đáy màn hình để đóng.");
-            return;
-        }
-        if (android.os.Build.VERSION.SDK_INT < 30) {
-            note("Bong bóng của Android cần Android 11 trở lên — chọn kiểu \"Nổi trên ứng dụng khác\".");
-            return;
-        }
         dropdown("Hiện bong bóng cho", new String[]{"Mọi cuộc trò chuyện", "Chỉ chat 1-1", "Chỉ nhóm"},
                 Prefs.bubbleScope(this), v -> Prefs.put(this, Prefs.BUBBLE_SCOPE, v));
         toggle("Tự mở khung chat khi có tin nhắn mới (không chỉ hiện bong bóng thu gọn)",
@@ -290,6 +269,10 @@ public class SettingsActivity extends Activity {
         button(allowed ? "Bong bóng của app: đã cho phép (chạm để đổi)" : "Cho phép bong bóng của app trong cài đặt Android",
                 () -> safeStart(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_BUBBLE_SETTINGS)
                         .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName())));
+        button(android.provider.Settings.canDrawOverlays(this) ? "Hiển thị trên ứng dụng khác: đã cho phép (chạm để đổi)"
+                        : "Cho phép hiển thị trên ứng dụng khác",
+                () -> safeStart(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.parse("package:" + getPackageName()))));
         note("Android chỉ hiện bong bóng khi đã cho phép bong bóng cho app (nút trên). Chạm bong bóng để mở khung chat, "
                 + "kéo bong bóng xuống dấu X để đóng. Cài đặt áp dụng cho tin nhắn mới.");
     }

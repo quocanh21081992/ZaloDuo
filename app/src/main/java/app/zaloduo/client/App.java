@@ -22,6 +22,7 @@ public class App extends Application {
     static final String CH_SERVICE = "service";
     static final String CH_CALL_ONGOING = "call_ongoing";
     static final String CH_CALL_INCOMING = "call_incoming";
+    static final String CH_BUBBLE = "chat_bubble";
 
     static final Handler MAIN = new Handler(Looper.getMainLooper());
     static final ExecutorService IO = Executors.newFixedThreadPool(3);
@@ -98,6 +99,15 @@ public class App extends Application {
         callIncoming.setVibrationPattern(RING_VIBRATION);
         callIncoming.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
 
-        nm.createNotificationChannels(Arrays.asList(messages, silent, calls, callsQuiet, service, callOngoing, callIncoming));
+        // Bong bóng khi rời app lúc đang chat: kênh quan trọng (kênh "im lặng" mức thấp thì nhiều máy, như Huawei, không
+        // cho hiện bong bóng) nhưng không kêu, không rung.
+        NotificationChannel bubble = new NotificationChannel(
+                CH_BUBBLE, "Bong bóng chat", NotificationManager.IMPORTANCE_HIGH);
+        bubble.setSound(null, null);
+        bubble.enableVibration(false);
+        bubble.setShowBadge(false);
+        if (android.os.Build.VERSION.SDK_INT >= 29) bubble.setAllowBubbles(true);
+
+        nm.createNotificationChannels(Arrays.asList(messages, silent, calls, callsQuiet, service, callOngoing, callIncoming, bubble));
     }
 }

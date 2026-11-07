@@ -227,8 +227,9 @@ public class MainActivity extends Activity {
         super.onStart();
         started = true;
         startedCount++;
+        leftWithBubble = false;
+        openingOwnScreen = false;
         visible = true;
-        if (!isBubble()) ChatHead.hide(); // mở app: bong bóng tự vẽ không cần nữa
         DiagLog.sys("app opened (zalo page " + (WebViewHolder.pageReady ? "ready" : "still loading") + ")");
         if (Prefs.keepAlive(this)) KeepAliveService.start(this);
         WebViewHolder.setHidden(false);
@@ -240,10 +241,37 @@ public class MainActivity extends Activity {
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
+        leaveBubble();
+    }
+
+    /** Đã hiện bong bóng cho lần rời app này (onUserLeaveHint hoặc onStop, tránh đăng hai lần). */
+    private boolean leftWithBubble;
+    /** App vừa tự mở một màn khác của mình (Cài đặt, xem ảnh...): màn chính dừng nhưng không phải người dùng rời app. */
+    private boolean openingOwnScreen;
+
+    private void leaveBubble() {
         String conv = lastOpenedConv;
-        if (!isBubble() && WebViewHolder.mobileChatOpen && conv != null && !KeepAliveService.isMediaActive()) {
-            Notifier.bubbleForConversation(this, conv);
-        }
+        if (leftWithBubble || isBubble() || !WebViewHolder.mobileChatOpen || conv == null
+                || KeepAliveService.isMediaActive() || CallManager.get().busy()) return;
+        leftWithBubble = true;
+        Notifier.bubbleForConversation(this, conv);
+    }
+
+    @Override
+    public void startActivity(Intent intent, Bundle options) {
+        markOwnScreen(intent);
+        super.startActivity(intent, options);
+    }
+
+    @Override
+    public void startActivityForResult(Intent intent, int requestCode, Bundle options) {
+        markOwnScreen(intent);
+        super.startActivityForResult(intent, requestCode, options);
+    }
+
+    private void markOwnScreen(Intent intent) {
+        if (intent != null && intent.getComponent() != null
+                && getPackageName().equals(intent.getComponent().getPackageName())) openingOwnScreen = true;
     }
 
     @Override
@@ -256,6 +284,12 @@ public class MainActivity extends Activity {
     protected void onStop() {
         started = false;
         startedCount = Math.max(0, startedCount - 1);
+        // Một số máy (Huawei / HarmonyOS) không gọi onUserLeaveHint khi vuốt về màn hình chính: dựa vào onStop — trừ khi
+        // app tự mở màn khác, đổi cấu hình, hay tắt màn hình.
+        android.os.PowerManager pm = getSystemService(android.os.PowerManager.class);
+        if (startedCount == 0 && !openingOwnScreen && !isChangingConfigurations() && !isFinishing()
+                && (pm == null || pm.isInteractive())) leaveBubble();
+        openingOwnScreen = false;
         // Màn chính và bong bóng chat có thể cùng hiện: chỉ coi là "về nền" khi không còn màn nào.
         if (startedCount > 0) { super.onStop(); return; }
         visible = false;
