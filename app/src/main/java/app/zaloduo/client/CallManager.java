@@ -822,30 +822,48 @@ final class CallManager {
         notifyListener();
     }
 
-    private android.media.ToneGenerator ringbackTone;
+    private android.media.MediaPlayer ringbackPlayer;
 
     /**
      * Hồi chuông khi gọi đi: chỉ phát khi máy bên kia đã đổ chuông (ring_ring), để phân biệt với lúc còn đang nối /
-     * mất mạng (im lặng). Âm "tút… tút…" chuẩn của Android, qua đường thoại: tai nghe thoại, hoặc loa ngoài khi gọi
-     * video / đã bật loa. Chạy trên luồng chính.
+     * mất mạng (im lặng). Nhạc chọn trong Cài đặt (mặc định res/raw/ringback.mp3), phát lặp qua đường thoại: tai nghe
+     * thoại, hoặc loa ngoài khi gọi video / đã bật loa. Là trình phát âm thanh thoại đang chạy nên Android không trả chế
+     * độ âm thanh về bình thường giữa chừng (ToneGenerator thì bị trả sau ~6 giây, chỉ nghe được 2 tiếng). Luồng chính.
      */
     private void setRingback(boolean on) {
         if (!on) {
-            if (ringbackTone != null) {
-                try { ringbackTone.stopTone(); ringbackTone.release(); } catch (Exception ignored) { }
-                ringbackTone = null;
+            if (ringbackPlayer != null) {
+                try { ringbackPlayer.stop(); } catch (Exception ignored) { }
+                ringbackPlayer.release();
+                ringbackPlayer = null;
             }
             return;
         }
-        if (ringbackTone != null || app == null) return;
+        if (ringbackPlayer != null || app == null) return;
+        android.net.Uri uri = Prefs.ringback(app);
+        if (uri == null) return; // Cài đặt: im lặng
         try {
             app.getSystemService(AudioManager.class).setMode(AudioManager.MODE_IN_COMMUNICATION);
             if (isVideo) KeepAliveService.setSpeaker(app, true); // gọi video: cầm máy xa tai, nghe qua loa ngoài
-            ringbackTone = new android.media.ToneGenerator(AudioManager.STREAM_VOICE_CALL, 80);
-            ringbackTone.startTone(android.media.ToneGenerator.TONE_SUP_RINGTONE);
+            android.media.MediaPlayer p = new android.media.MediaPlayer();
+            p.setAudioAttributes(new android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
+            try {
+                p.setDataSource(app, uri);
+            } catch (Exception e) { // nhạc đã chọn không đọc được (file bị xoá...): dùng hồi chuông của app
+                p.reset();
+                p.setAudioAttributes(new android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
+                p.setDataSource(app, Prefs.defaultRingback(app));
+            }
+            p.setLooping(true);
+            p.prepare();
+            p.start();
+            ringbackPlayer = p;
         } catch (Exception e) {
             CallEvents.log("ringback failed " + e);
-            ringbackTone = null;
         }
     }
 

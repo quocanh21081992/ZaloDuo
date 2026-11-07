@@ -116,6 +116,7 @@ public class SettingsActivity extends Activity {
         }
         toggle("Hiện thông số cuộc gọi (ping, tốc độ tiếng / hình) ở góc màn hình gọi", Prefs.CALL_STATS, true, null);
         ringtoneButton = button(ringtoneLabel(), this::pickRingtone);
+        ringbackButton = button(ringbackLabel(), this::pickRingback);
         button("Sao chép nhật ký cuộc gọi (gửi khi báo lỗi gọi)", () -> {
             String log = CallEvents.dump();
             ClipboardManager cm = getSystemService(ClipboardManager.class);
@@ -473,13 +474,52 @@ public class SettingsActivity extends Activity {
         }
     }
 
+    // ------------------------------------------------------------------ hồi chuông khi gọi đi
+
+    private static final int REQ_RINGBACK = 78;
+    private Button ringbackButton;
+
+    private String ringbackLabel() {
+        android.net.Uri u = Prefs.ringback(this);
+        String name;
+        if (u == null) name = "Im lặng";
+        else if (!Prefs.hasCustomRingback(this)) name = "Mặc định của app";
+        else {
+            android.media.Ringtone r = android.media.RingtoneManager.getRingtone(this, u);
+            name = r != null ? r.getTitle(this) : u.getLastPathSegment();
+        }
+        return "Hồi chuông khi gọi đi: " + name;
+    }
+
+    /** Trình chọn nhạc của máy (có "Thêm nhạc chuông" để chọn file riêng); mục "Mặc định" = hồi chuông của app. */
+    private void pickRingback() {
+        android.net.Uri def = Prefs.defaultRingback(this), cur = Prefs.ringback(this);
+        android.content.Intent i = new android.content.Intent(android.media.RingtoneManager.ACTION_RINGTONE_PICKER)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TYPE, android.media.RingtoneManager.TYPE_ALL)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_TITLE, "Hồi chuông khi gọi đi")
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI, def)
+                .putExtra(android.media.RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, cur == null ? null : cur);
+        try {
+            startActivityForResult(i, REQ_RINGBACK);
+        } catch (android.content.ActivityNotFoundException e) {
+            android.widget.Toast.makeText(this, "Máy không có trình chọn nhạc chuông", android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
     @Override
     protected void onActivityResult(int req, int res, android.content.Intent data) {
         super.onActivityResult(req, res, data);
-        if (req != REQ_RINGTONE || res != RESULT_OK || data == null) return;
+        if (res != RESULT_OK || data == null) return;
         android.net.Uri u = data.getParcelableExtra(android.media.RingtoneManager.EXTRA_RINGTONE_PICKED_URI);
-        Prefs.setRingtone(this, u);
-        if (ringtoneButton != null) ringtoneButton.setText(ringtoneLabel());
+        if (req == REQ_RINGTONE) {
+            Prefs.setRingtone(this, u);
+            if (ringtoneButton != null) ringtoneButton.setText(ringtoneLabel());
+        } else if (req == REQ_RINGBACK) {
+            Prefs.setRingback(this, u);
+            if (ringbackButton != null) ringbackButton.setText(ringbackLabel());
+        }
     }
 
     private Button button(String label, final Runnable action) {

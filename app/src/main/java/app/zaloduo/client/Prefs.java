@@ -75,6 +75,31 @@ final class Prefs {
         else sp(c).edit().putString(RINGTONE, u == null ? "" : u.toString()).apply();
     }
 
+    static final String RINGBACK = "call_ringback";
+
+    /** Hồi chuông có sẵn trong app (res/raw/ringback.mp3). */
+    static android.net.Uri defaultRingback(Context c) {
+        return android.net.Uri.parse("android.resource://" + c.getPackageName() + "/" + R.raw.ringback);
+    }
+
+    /** Hồi chuông khi gọi đi (máy bên kia đang đổ chuông): chưa chọn = hồi chuông của app; "Im lặng" = null. */
+    static android.net.Uri ringback(Context c) {
+        String s = sp(c).getString(RINGBACK, null);
+        if (s == null) return defaultRingback(c);
+        return s.isEmpty() ? null : android.net.Uri.parse(s);
+    }
+
+    static boolean hasCustomRingback(Context c) {
+        String s = sp(c).getString(RINGBACK, null);
+        return s != null && !s.isEmpty() && !defaultRingback(c).toString().equals(s);
+    }
+
+    /** null = im lặng; Uri hồi chuông của app = mặc định. */
+    static void setRingback(Context c, android.net.Uri u) {
+        if (u != null && defaultRingback(c).equals(u)) sp(c).edit().remove(RINGBACK).apply();
+        else sp(c).edit().putString(RINGBACK, u == null ? "" : u.toString()).apply();
+    }
+
     static final String DOCK_CLOUD = "dock_cloud", DOCK_TOOLS = "dock_tools";
     /** Nút zCloud / Công cụ của Zalo ở bên phải thanh dock (sau My Documents). */
     static boolean dockCloud(Context c) { return bool(c, DOCK_CLOUD, false); }
