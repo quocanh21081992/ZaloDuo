@@ -816,7 +816,37 @@ final class CallManager {
     private void setState(State s, String d) {
         synchronized (this) { state = s; detail = d == null ? "" : d; }
         CallEvents.log("state " + s + (d == null || d.isEmpty() ? "" : " (" + d + ")"));
+        boolean ringback;
+        synchronized (this) { ringback = s == State.RINGING && !incoming; }
+        App.MAIN.post(() -> setRingback(ringback));
         notifyListener();
+    }
+
+    private android.media.ToneGenerator ringbackTone;
+
+    /**
+     * Hồi chuông khi gọi đi: chỉ phát khi máy bên kia đã đổ chuông (ring_ring), để phân biệt với lúc còn đang nối /
+     * mất mạng (im lặng). Âm "tút… tút…" chuẩn của Android, qua đường thoại: tai nghe thoại, hoặc loa ngoài khi gọi
+     * video / đã bật loa. Chạy trên luồng chính.
+     */
+    private void setRingback(boolean on) {
+        if (!on) {
+            if (ringbackTone != null) {
+                try { ringbackTone.stopTone(); ringbackTone.release(); } catch (Exception ignored) { }
+                ringbackTone = null;
+            }
+            return;
+        }
+        if (ringbackTone != null || app == null) return;
+        try {
+            app.getSystemService(AudioManager.class).setMode(AudioManager.MODE_IN_COMMUNICATION);
+            if (isVideo) KeepAliveService.setSpeaker(app, true); // gọi video: cầm máy xa tai, nghe qua loa ngoài
+            ringbackTone = new android.media.ToneGenerator(AudioManager.STREAM_VOICE_CALL, 80);
+            ringbackTone.startTone(android.media.ToneGenerator.TONE_SUP_RINGTONE);
+        } catch (Exception e) {
+            CallEvents.log("ringback failed " + e);
+            ringbackTone = null;
+        }
     }
 
     private void notifyListener() {
