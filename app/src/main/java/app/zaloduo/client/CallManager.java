@@ -387,11 +387,20 @@ final class CallManager {
                 App.IO.execute(() -> connect(myGen, ser));
                 break;
             }
+            default:
+                // Bên kia bật / tắt micro, camera (sendOnOffCamMic): Zalo PC tắt mic -> act "mute_audio", params.type 1 = tắt,
+                // 0 = bật (đã thử 2026-11-07). Camera tương tự ("mute_video" / isOnCam 1 = tắt). Gọi thoại mà bên kia bật
+                // camera = mời chuyển sang video.
+                CallEvents.log("voip event data " + act + " " + data + " params=" + params);
+                if (act.contains("video") || act.contains("cam") || act.contains("onoff")) {
+                    JSONObject src = params != null ? params : data;
+                    if (src.has("isOnCam")) onPeerCamera(myGen, parseLong(src.opt("isOnCam")) == 0);
+                    else if (src.has("type")) onPeerCamera(myGen, parseLong(src.opt("type")) == 0);
+                }
+                break;
             case "end_call":
             case "cancel":
                 end(myGen, "Đã kết thúc", false);
-                break;
-            default:
                 break;
         }
     }
@@ -414,6 +423,21 @@ final class CallManager {
         am.setMode(AudioManager.MODE_IN_COMMUNICATION);
         a.start();
         if (isVideo) {
+            startVideo(myGen, r);
+            App.MAIN.post(() -> KeepAliveService.setSpeaker(app, true)); // gọi video: loa ngoài như Zalo
+        } else {
+            // Gọi thoại: bên kia bật camera (gửi hình tới) = mời chuyển sang gọi video.
+            r.setUnexpectedVideo(() -> onPeerCamera(myGen, true));
+        }
+        setState(State.CONNECTED, "");
+        // Người gọi xác nhận (408); người nhận thì bên gọi tự gửi.
+        if (!incoming) CallSignal.call("sendAnswerACKCall", new JSONArray().put(partnerId).put(callId), (ok, body) -> { });
+        if (isVideo) sendMediaState(); // báo camera đang bật
+    }
+
+    /** Bật đường hình (camera + mã hoá gửi đi + giải mã hình bên kia) — lúc nối máy gọi video, hoặc chuyển từ gọi thoại. */
+    private void startVideo(int myGen, ZrtpRelay r) {
+        {
             CallVideo v = new CallVideo(app, new CallVideo.Out() {
                 @Override public void sendVideoRtp(byte[] rtp, int len) { r.sendVideoRtp(rtp, len); }
                 @Override public void sendRtcp(byte[] rtcp, int len, boolean vid) { r.sendRtcp(rtcp, len, vid); }
@@ -422,7 +446,6 @@ final class CallManager {
             r.setRtcpSink(v::onRtcp);
             synchronized (this) { video = v; }
             v.start();
-            App.MAIN.post(() -> KeepAliveService.setSpeaker(app, true)); // gọi video: loa ngoài như Zalo
             // ZaloCall.exe gửi IncallNegotiateInfo đều đặn trong cuộc gọi video.
             App.IO.execute(() -> {
                 long lastRv = r.rxVideoBytes, lastAt = System.currentTimeMillis(), lastIdr = 0;
@@ -443,10 +466,82 @@ final class CallManager {
                 }
             });
         }
-        setState(State.CONNECTED, "");
-        // Người gọi xác nhận (408); người nhận thì bên gọi tự gửi.
-        if (!incoming) CallSignal.call("sendAnswerACKCall", new JSONArray().put(partnerId).put(callId), (ok, body) -> { });
-        if (isVideo) sendMediaState(); // báo camera đang bật
+    }
+
+    // ------------------------------------------------------------------ chuyển gọi thoại -> gọi video
+
+    /** Mình đã mời chuyển sang video (camera mình đã bật), chờ bên kia bật camera. */
+    private boolean videoRequested;
+    /** Bên kia mời chuyển sang video (bật camera / gửi hình tới) khi đang gọi thoại: màn hình hỏi Đồng ý / Từ chối. */
+    private boolean videoInvite;
+
+    synchronized boolean videoRequested() { return videoRequested; }
+
+    synchronized boolean videoInvite() { return videoInvite; }
+
+    /**
+     * Nút "Video" khi đang gọi thoại: bật camera của mình, gửi hình và báo "camera bật" (sendOnOffCamMic) — trên Zalo bên
+     * kia hiện lời mời bật camera. Bên kia bật camera ({@link #onPeerCamera}) thì coi là đồng ý: chuyển loa ngoài.
+     */
+    void requestVideo() {
+        if (!switchToVideo(false)) return;
+        synchronized (this) { videoRequested = true; }
+        CallEvents.log("video upgrade: requested");
+        notifyListener();
+    }
+
+    /** Đồng ý lời mời chuyển sang video của bên kia. */
+    void acceptVideo() {
+        synchronized (this) { videoInvite = false; }
+        if (!switchToVideo(true)) return;
+        CallEvents.log("video upgrade: accepted invite");
+        notifyListener();
+    }
+
+    void declineVideo() {
+        synchronized (this) { videoInvite = false; }
+        CallEvents.log("video upgrade: declined invite");
+        sendMediaState(); // vẫn báo camera mình tắt
+        notifyListener();
+    }
+
+    private boolean switchToVideo(boolean speaker) {
+        final int myGen;
+        final ZrtpRelay r;
+        synchronized (this) {
+            if (state != State.CONNECTED || group || video != null || relay == null || app == null) return false;
+            isVideo = true;
+            myGen = gen;
+            r = relay;
+            r.setUnexpectedVideo(null);
+        }
+        App.MAIN.post(() -> KeepAliveService.setMediaActive(app, true, true)); // dịch vụ nền: thêm quyền dùng camera
+        startVideo(myGen, r);
+        if (speaker) App.MAIN.post(() -> KeepAliveService.setSpeaker(app, true));
+        sendMediaState();
+        return true;
+    }
+
+    /** Bên kia bật / tắt camera (tín hiệu onoff, hoặc hình bắt đầu tới khi đang gọi thoại). */
+    private void onPeerCamera(int myGen, boolean on) {
+        boolean ask = false, accepted = false;
+        synchronized (this) {
+            if (!current(myGen) || state != State.CONNECTED || group || !on) return;
+            if (video == null) {
+                if (!videoInvite) { videoInvite = true; ask = true; }
+            } else if (videoRequested) {
+                videoRequested = false;
+                accepted = true;
+            }
+        }
+        if (ask) {
+            CallEvents.log("video upgrade: peer camera on -> invite");
+            notifyListener();
+        } else if (accepted) {
+            CallEvents.log("video upgrade: peer accepted");
+            App.MAIN.post(() -> KeepAliveService.setSpeaker(app, true)); // bên kia đồng ý: ra loa ngoài
+            notifyListener();
+        }
     }
 
     private long stT, stTA, stRA, stTV, stRV;
@@ -780,6 +875,7 @@ final class CallManager {
             if (myGen != gen || !busy()) return;
         }
         stopRecording(); // kết thúc cuộc gọi: đóng và lưu file ghi âm
+        synchronized (this) { videoRequested = false; videoInvite = false; }
         synchronized (this) {
             if (myGen != gen || !busy()) return;
             r = relay; a = audio; v = video;

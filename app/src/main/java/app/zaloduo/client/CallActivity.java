@@ -52,7 +52,40 @@ public class CallActivity extends Activity implements CallManager.Listener {
     private boolean cropVideo;
     private int vidW, vidH;
     private ImageView avatar, speakerIcon, micIcon;
-    private View speakerBtn, micBtn, recBtn;
+    private View speakerBtn, micBtn, recBtn, videoReqBtn;
+    private boolean builtVideo;
+    private android.app.AlertDialog inviteDialog;
+    private Runnable afterCamera;
+    private static final int REQ_CAMERA = 43;
+
+    /** Chạy {@code r} khi đã có quyền camera (xin nếu chưa). */
+    private void withCamera(Runnable r) {
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) { r.run(); return; }
+        afterCamera = r;
+        requestPermissions(new String[]{Manifest.permission.CAMERA}, REQ_CAMERA);
+    }
+
+    /**
+     * Gọi thoại -> gọi video: đã chuyển sang video thì dựng lại màn hình kiểu video; bên kia mời thì hỏi Đồng ý / Từ chối;
+     * nút Video chỉ sáng khi đã nối máy.
+     */
+    private void updateVideoUpgrade() {
+        CallManager m = CallManager.get();
+        if (!builtVideo && m.busy() && m.isVideo()) { recreate(); return; }
+        if (videoReqBtn != null) videoReqBtn.setAlpha(m.state() == CallManager.State.CONNECTED && !m.isGroup() ? 1f : 0.4f);
+        if (m.videoInvite() && inviteDialog == null && !isFinishing()) {
+            inviteDialog = new android.app.AlertDialog.Builder(this)
+                    .setTitle("Chuyển sang gọi video?")
+                    .setCancelable(false)
+                    .setMessage(m.partnerName() + " đã bật camera và mời bạn chuyển sang gọi video.")
+                    .setNegativeButton("Từ chối", (d, w) -> CallManager.get().declineVideo())
+                    .setPositiveButton("Đồng ý", (d, w) -> withCamera(() -> CallManager.get().acceptVideo()))
+                    .setOnDismissListener(d -> inviteDialog = null)
+                    .show();
+        } else if (!m.videoInvite() && inviteDialog != null) {
+            inviteDialog.dismiss();
+        }
+    }
     private ImageView recIcon;
     private TextView recLabel;
     private String pendingUid, pendingName, pendingAvatar, loadedAvatar;
@@ -199,6 +232,13 @@ public class CallActivity extends Activity implements CallManager.Listener {
 
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
+        if (code == REQ_CAMERA) {
+            Runnable r = afterCamera;
+            afterCamera = null;
+            if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) { if (r != null) r.run(); }
+            else Toast.makeText(this, "Cần quyền camera để gọi video", Toast.LENGTH_LONG).show();
+            return;
+        }
         if (code == REQ_ANSWER) {
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) CallManager.get().answer();
             else Toast.makeText(this, "Cần quyền micro để nghe máy", Toast.LENGTH_LONG).show();
@@ -434,6 +474,7 @@ public class CallActivity extends Activity implements CallManager.Listener {
         micIcon.setImageResource(m.muted() ? R.drawable.zd_ic_mic_off : R.drawable.zd_ic_mic);
         if (inPip && pipMuted != m.muted()) { pipMuted = m.muted(); refreshPip(); } // đổi biểu tượng mic trên cửa sổ nổi
         updateRecButton();
+        updateVideoUpgrade();
         CallVideo v = m.video();
         if (camBtn != null) {
             boolean off = v != null && !v.cameraOn();
@@ -756,8 +797,9 @@ public class CallActivity extends Activity implements CallManager.Listener {
 
         root.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1f));
 
-        // Nút — thoại: Loa / Kết thúc / Mic / Ghi âm; video: Loa / Camera / Kết thúc / Mic / Ghi âm (nút đỏ ở giữa).
-        btnSize = videoMode ? 56 : 64;
+        // Nút — thoại: Loa / Mic / Kết thúc / Ghi âm / Video; video: Loa / Camera / Kết thúc / Mic / Ghi âm (nút đỏ ở giữa).
+        btnSize = 56;
+        builtVideo = videoMode;
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER);
         View.OnClickListener endClick = v -> {
@@ -775,11 +817,12 @@ public class CallActivity extends Activity implements CallManager.Listener {
                 CallManager.get().setCameraOn(!cv.cameraOn());
                 localView.setAlpha(cv.cameraOn() ? 1f : 0f);
             });
+            roundButton(row, new ImageView(this), R.drawable.zd_ic_call_end, RED, "Kết thúc", endClick); // ở giữa hàng
         }
-        roundButton(row, new ImageView(this), R.drawable.zd_ic_call_end, RED, "Kết thúc", endClick); // ở giữa hàng
         micIcon = new ImageView(this);
         micBtn = roundButton(row, micIcon, R.drawable.zd_ic_mic, btnBg, "Mic",
                 v -> CallManager.get().setMuted(!CallManager.get().muted()));
+        if (!videoMode) roundButton(row, new ImageView(this), R.drawable.zd_ic_call_end, RED, "Kết thúc", endClick);
         recIcon = new ImageView(this);
         recBtn = roundButton(row, recIcon, R.drawable.zd_ic_record, btnBg, "Ghi âm", v -> {
             if (CallManager.get().state() != CallManager.State.CONNECTED) {
@@ -789,6 +832,19 @@ public class CallActivity extends Activity implements CallManager.Listener {
             CallManager.get().toggleRecording();
         });
         recLabel = (TextView) ((LinearLayout) recBtn.getParent()).getChildAt(1);
+        if (!videoMode) { // mời chuyển sang gọi video: chỉ bấm được khi đã nối máy (gọi 1-1)
+            videoReqBtn = roundButton(row, new ImageView(this), R.drawable.zd_ic_video, btnBg, "Video", v -> {
+                CallManager m = CallManager.get();
+                if (m.state() != CallManager.State.CONNECTED || m.isGroup()) {
+                    Toast.makeText(this, "Chuyển sang video được khi đã nối máy", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                withCamera(() -> {
+                    CallManager.get().requestVideo();
+                    Toast.makeText(this, "Đã mời " + m.partnerName() + " chuyển sang gọi video", Toast.LENGTH_SHORT).show();
+                });
+            });
+        }
         root.addView(row, new LinearLayout.LayoutParams(-1, -2));
         normalRow = row;
 

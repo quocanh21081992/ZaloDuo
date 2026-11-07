@@ -277,6 +277,18 @@ final class ZrtpRelay {
                         if (rtt >= 0 && rtt < 5000) pingMs = pingMs < 0 ? rtt : (pingMs * 3 + rtt) / 4;
                     }
                 }
+            } else {
+                // Gói điều khiển khác (vd. lời mời chuyển sang video của Zalo điện thoại?): ghi lại để tìm hiểu.
+                String key = "ctl " + cmd + "/" + (n > 20 ? b[20] & 0xFF : -1);
+                synchronized (rxKinds) {
+                    Integer c = rxKinds.get(key);
+                    rxKinds.put(key, c == null ? 1 : c + 1);
+                    if (c == null || c < 3) {
+                        StringBuilder hx = new StringBuilder();
+                        for (int i = 0; i < Math.min(n, 96); i++) hx.append(String.format("%02x", b[i]));
+                        CallEvents.log("relay rx " + key + " len=" + n + " " + hx);
+                    }
+                }
             }
             return;
         }
@@ -299,6 +311,11 @@ final class ZrtpRelay {
         rxPkts++;
         boolean isVideo = t0 == 0x0E || pt == CallVideo.PT_DELTA || pt == CallVideo.PT_KEY;
         if (isVideo) rxVideoBytes += n; else rxAudioBytes += n;
+        if (isVideo && videoSink == null) { // gọi thoại mà hình bên kia tới: bên kia bật camera (báo một lần)
+            Runnable u = unexpectedVideo;
+            unexpectedVideo = null;
+            if (u != null) App.IO.execute(u);
+        }
         MediaSink k = isVideo ? videoSink : sink;
         if (k != null) k.onRtp(b, off, n - off);
     }
@@ -324,6 +341,11 @@ final class ZrtpRelay {
     }
 
     void setVideoSink(MediaSink s) { videoSink = s; }
+
+    private volatile Runnable unexpectedVideo;
+
+    /** Gọi thoại: báo khi gói hình đầu tiên của bên kia tới (bên kia bật camera). null = thôi. */
+    void setUnexpectedVideo(Runnable r) { unexpectedVideo = r; }
 
     void setRtcpSink(MediaSink s) { rtcpSink = s; }
 
