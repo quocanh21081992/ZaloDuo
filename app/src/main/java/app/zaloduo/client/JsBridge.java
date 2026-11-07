@@ -164,6 +164,13 @@ final class JsBridge {
         }
     }
 
+    /** Menu giữ lâu một hội thoại → "Đưa ra bong bóng chat" (shim.js, mục 12). */
+    @JavascriptInterface
+    public void convBubble(String t, final String convId) {
+        if (!ok(t) || owner.popup || convId == null) return;
+        Notifier.bubbleOnRequest(app, convId);
+    }
+
     /** Người dùng vừa vào một hội thoại (mục 8 của shim.js): xoá thông báo của hội thoại đó. */
     @JavascriptInterface
     public void convOpened(String t, final String convId) {
