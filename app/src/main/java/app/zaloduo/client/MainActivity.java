@@ -228,6 +228,7 @@ public class MainActivity extends Activity {
         started = true;
         startedCount++;
         visible = true;
+        if (!isBubble()) ChatHead.hide(); // mở app: bong bóng tự vẽ không cần nữa
         DiagLog.sys("app opened (zalo page " + (WebViewHolder.pageReady ? "ready" : "still loading") + ")");
         if (Prefs.keepAlive(this)) KeepAliveService.start(this);
         WebViewHolder.setHidden(false);
